@@ -77,3 +77,8 @@ func init() {
 			},
 		})
 }
+
+// BeginTx starts and returns a new SQL transaction.
+func (fst *Forest) BeginTx() (tx *sql.Tx, err error) {
+	return fst.sdb.Begin()
+}
