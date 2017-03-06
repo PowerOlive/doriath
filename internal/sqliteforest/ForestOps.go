@@ -15,11 +15,11 @@ type Record struct {
 	RightHash []byte
 }
 
-// Hash computes the double-SHA256 hash of a record.
+// Hash computes the "standard" hash of a record as specified in the docs.
 func (rec Record) Hash() []byte {
 	buf := new(bytes.Buffer)
 	buf.Write([]byte(rec.Key))
-	buf.Write(rec.Value)
+	buf.Write(libkataware.DoubleSHA256(rec.Value))
 	buf.Write(rec.LeftHash)
 	buf.Write(rec.RightHash)
 	return libkataware.DoubleSHA256(buf.Bytes())

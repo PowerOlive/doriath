@@ -50,6 +50,7 @@ func TestFaultyCursor(t *testing.T) {
 	fst, err := OpenForest(dbFileName)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 	defer fst.sdb.Close()
 	defer RemoveTempDbFile(t, dbFileName)
@@ -57,6 +58,7 @@ func TestFaultyCursor(t *testing.T) {
 	tx, err := fst.sdb.Begin()
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	r := Record{Key: "key", Value: []byte("value")}
@@ -64,6 +66,7 @@ func TestFaultyCursor(t *testing.T) {
 	cr, err := allocCursor(tx, r)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	// finish the transaction on purpose
@@ -72,23 +75,23 @@ func TestFaultyCursor(t *testing.T) {
 
 	// this should fail as tx has already been committed
 	_, err = cr.getLeft()
-	if err != nil {
-		// expected
+	if err == nil {
+		t.Error("we should die but didn't")
 	}
 
 	// this should fail as tx has already been committed
 	_, err = cr.getRight()
-	if err != nil {
-		// expected
+	if err == nil {
+		t.Error("we should die but didn't")
 	}
 
 	_, err = allocCursor(tx, r)
-	if err != nil {
-		// expected
+	if err == nil {
+		t.Error("we should die but didn't")
 	}
 
 	_, err = searchTree(cr, "key")
-	if err != nil {
-		// expected
+	if err == nil {
+		t.Error("we should die but didn't")
 	}
 }
