@@ -25,7 +25,7 @@ func (rec Record) Hash() []byte {
 	return libkataware.DoubleSHA256(buf.Bytes())
 }
 
-// FindProof returns a proof of (non)existence given a tree-root hash and a key. The proof is structured as a list of records starting from the tree root.
+// FindProof returns a proof of (non)existence given a tree-root hash and a key. The proof is structured as a list of records starting from the tree root. Note that the records contain values in unabbreviated form; they should be sent to the client with the values replaced by a hash.
 func (fst *Forest) FindProof(trhash []byte, key string) (proof []Record, err error) {
 	tx, err := fst.sdb.Begin()
 	if err != nil {
