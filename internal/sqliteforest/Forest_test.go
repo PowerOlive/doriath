@@ -17,7 +17,7 @@ func CreateTempDbFile(t *testing.T, dbFileName string) string {
 }
 
 func RemoveTempDbFile(t *testing.T, dbFileName string) {
-	defer os.Remove(dbFileName)
+	os.Remove(dbFileName)
 }
 
 func CreateTestDict(size int) map[string][]byte {
@@ -33,15 +33,18 @@ func TestCreateForest(t *testing.T) {
 	frst, err := OpenForest(dbFileName)
 	if err != nil {
 		t.Error(err)
+		return
 	}
-	frst.sdb.Close()
+	frst.Close()
 	RemoveTempDbFile(t, dbFileName)
 }
 
-func TestNonExistingDb(t *testing.T) {
+func TestNonExistingDbDir(t *testing.T) {
 	frst, err := OpenForest("/does/not/exist/invalid.db")
-	if err != nil {
-		// expecting an error; simply ignore
+	if err == nil {
+		// error happens because the *directory* doesn't exist
+		t.Error("we expected an error")
+		return
 	}
 	frst.DumpDOT(ioutil.Discard) // should do nothing
 }
@@ -51,11 +54,13 @@ func TestFindProofFailOnMissingDb(t *testing.T) {
 	fst, err := OpenForest(dbFileName)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
-	tx, err := fst.BeginTx()
+	tx, err := fst.sdb.Begin()
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	testDict := CreateTestDict(10)
@@ -63,6 +68,7 @@ func TestFindProofFailOnMissingDb(t *testing.T) {
 	root, err := allocDict(tx, testDict)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 	tx.Commit()
 
@@ -70,9 +76,9 @@ func TestFindProofFailOnMissingDb(t *testing.T) {
 	fst.sdb.Close()
 	RemoveTempDbFile(t, dbFileName)
 
-	// calling FindProof on fst will raise an exception
+	// calling FindProof on fst will fail
 	_, err = fst.FindProof(root.loc, "key1")
-	if err != nil {
-		// expecting this; ignore
+	if err == nil {
+		t.Error("we expected an error because fst is closed")
 	}
 }

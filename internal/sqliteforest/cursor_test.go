@@ -54,13 +54,12 @@ func TestFaultyCursor(t *testing.T) {
 	defer fst.sdb.Close()
 	defer RemoveTempDbFile(t, dbFileName)
 
-	tx, err := fst.BeginTx()
+	tx, err := fst.sdb.Begin()
 	if err != nil {
 		t.Error(err)
 	}
 
-	r := Record{
-		Key: "key", Value: []byte("value")}
+	r := Record{Key: "key", Value: []byte("value")}
 
 	cr, err := allocCursor(tx, r)
 	if err != nil {

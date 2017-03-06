@@ -44,6 +44,11 @@ func OpenForest(fname string) (forest *Forest, err error) {
 	return
 }
 
+// Close releases all non-garbage-collectible resources that the forest holds.
+func (fst *Forest) Close() {
+	fst.sdb.Close()
+}
+
 // DumpDOT dumps a GraphViz .dot for debugging.
 func (fst *Forest) DumpDOT(out io.Writer) {
 	fmt.Fprintf(out, "digraph G {\nrankdir=\"TB\"\n")
@@ -79,9 +84,4 @@ func init() {
 				return err
 			},
 		})
-}
-
-// BeginTx starts and returns a new SQL transaction.
-func (fst *Forest) BeginTx() (tx *sql.Tx, err error) {
-	return fst.sdb.Begin()
 }
