@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/rensa-labs/libkataware"
+	"github.com/rensa-labs/doriath/internal/libkataware"
 )
 
 func main() {

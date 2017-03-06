@@ -37,7 +37,13 @@ func (cr cursor) isNull() bool {
 }
 
 func allocCursor(tx *sql.Tx, rec Record) (cursor, error) {
-	_, err := tx.Exec("INSERT INTO treenodes VALUES ($1, $2, $3, $4, $5)",
+	// if the hash already exists, then don't touch anything
+	var lol []byte
+	err := tx.QueryRow("SELECT hash FROM treenodes WHERE hash = $1", rec.Hash()).Scan(&lol)
+	if err == nil {
+		return cursor{tx, rec.Hash()}, nil
+	}
+	_, err = tx.Exec("INSERT INTO treenodes VALUES ($1, $2, $3, $4, $5)",
 		rec.Hash(), rec.Key, rec.Value, rec.LeftHash, rec.RightHash)
 	if err != nil {
 		return cursor{}, err

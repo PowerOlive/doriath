@@ -30,7 +30,7 @@ func OpenForest(fname string) (forest *Forest, err error) {
 	defer tx.Commit()
 	tx.Exec(`CREATE TABLE IF NOT EXISTS treenodes (
                 hash      BLOB PRIMARY KEY,
-                key       TEXT UNIQUE NOT NULL,
+                key       TEXT NOT NULL,
                 value     BLOB NOT NULL,
                 lefthash  BLOB REFERENCES treenodes(hash),
                 righthash BLOB REFERENCES treenodes(hash))`)
@@ -46,13 +46,15 @@ func OpenForest(fname string) (forest *Forest, err error) {
 
 // DumpDOT dumps a GraphViz .dot for debugging.
 func (fst *Forest) DumpDOT(out io.Writer) {
-	fmt.Fprintf(out, "digraph G {\n")
+	fmt.Fprintf(out, "digraph G {\nrankdir=\"TB\"\n")
+
 	defer fmt.Fprintf(out, "}\n")
 	dump, err := fst.sdb.Query("SELECT hash,key,lefthash,righthash FROM treenodes")
 	if err != nil {
 		log.Println(err.Error())
 		return
 	}
+	var count int
 	for dump.Next() {
 		var item Record
 		var hash []byte
@@ -64,6 +66,7 @@ func (fst *Forest) DumpDOT(out io.Writer) {
 		if item.RightHash != nil {
 			fmt.Fprintf(out, "\"%x\" -> \"%x\"\n", hash[:8], item.RightHash[:8])
 		}
+		count++
 	}
 }
 
