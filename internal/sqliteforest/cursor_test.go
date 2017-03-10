@@ -61,7 +61,7 @@ func TestFaultyCursor(t *testing.T) {
 		return
 	}
 
-	r := Record{Key: "key", Value: []byte("value")}
+	r := fullNode{Key: "key", Value: []byte("value")}
 
 	cr, err := allocCursor(tx, r)
 	if err != nil {

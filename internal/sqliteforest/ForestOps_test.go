@@ -3,21 +3,20 @@ package sqliteforest
 import (
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 )
 
-func TestWeirdTree(t *testing.T) {
+func TestWeirdProofs(t *testing.T) {
 	frst, err := OpenForest("file::memory:?cache=shared")
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	for i := 0; i < 2; i++ {
-		for j := 0; j < rand.Int()%20+2; j++ {
-			key := fmt.Sprintf("tfo%v,%v", i, j)
-			value := make([]byte, 32)
-			err := frst.StageDiff(key, value)
+	for i := 0; i < 10; i++ {
+		for j := 0; j < 10; j++ {
+			key := fmt.Sprintf("key%v,%v", i, j)
+			value := []byte(fmt.Sprintf("val%v,%v", i, j))
+			err = frst.StageDiff(key, value)
 			if err != nil {
 				t.Error(err)
 				return
@@ -25,7 +24,41 @@ func TestWeirdTree(t *testing.T) {
 		}
 		frst.Commit()
 	}
-	frst.DumpDOT(os.Stdout)
+	roots, err := frst.TreeRoots()
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	for i := 0; i < 10; i++ {
+		for j := 0; j < 10; j++ {
+			key := fmt.Sprintf("key%v,%v", i, j)
+			value := []byte(fmt.Sprintf("val%v,%v", i, j))
+			var proof Proof
+			proof, err = frst.FindProof(roots[i], key)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			// vanilla proof should work
+			if !proof.Check(roots[i], key, value) {
+				t.Error("failed proof")
+				return
+			}
+			// wrong proof type should fail
+			if proof.Check(roots[i], key, nil) {
+				t.Error("should have failed nonexistence proof!")
+				return
+			}
+			// corupted proof should fail
+			lol := make([]byte, 32)
+			rand.Read(lol)
+			proof[rand.Int()%len(proof)].FromBytes(lol)
+			if proof.Check(roots[i], key, nil) {
+				t.Error("should have failed corrupted proof!")
+				return
+			}
+		}
+	}
 }
 
 func BenchmarkStaging(b *testing.B) {

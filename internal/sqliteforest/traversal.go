@@ -9,7 +9,7 @@ import (
 // search for a value given a key in a (sub)tree, returning a path leading to the "closest" part of the tree; a path is returned regardless of whether or not the key actually exists
 func searchTree(root cursor, key string) (path []cursor, err error) {
 	for !root.isNull() {
-		var rec Record
+		var rec fullNode
 		rec, err = root.getRecord()
 		if err != nil {
 			return
@@ -48,7 +48,7 @@ func allocDict(tx *sql.Tx, dict map[string][]byte) (root cursor, err error) {
 			return cursor{}, nil
 		} else if len(sl) == 1 {
 			return allocCursor(tx,
-				Record{
+				fullNode{
 					Key:   sl[0],
 					Value: dict[sl[0]]})
 		} else {
@@ -64,7 +64,7 @@ func allocDict(tx *sql.Tx, dict map[string][]byte) (root cursor, err error) {
 				return cursor{}, err
 			}
 			return allocCursor(tx,
-				Record{Key: mid, Value: dict[mid],
+				fullNode{Key: mid, Value: dict[mid],
 					LeftHash: lcurs.loc, RightHash: rcurs.loc})
 		}
 	}

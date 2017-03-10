@@ -8,8 +8,8 @@ type cursor struct {
 	loc []byte
 }
 
-func (cr cursor) getRecord() (Record, error) {
-	var toret Record
+func (cr cursor) getRecord() (fullNode, error) {
+	var toret fullNode
 	var lol []byte
 	err := cr.tx.QueryRow("SELECT * FROM treenodes WHERE hash = $1", cr.loc).
 		Scan(&lol, &toret.Key, &toret.Value, &toret.LeftHash, &toret.RightHash)
@@ -36,7 +36,7 @@ func (cr cursor) isNull() bool {
 	return cr.loc == nil
 }
 
-func allocCursor(tx *sql.Tx, rec Record) (cursor, error) {
+func allocCursor(tx *sql.Tx, rec fullNode) (cursor, error) {
 	// if the hash already exists, then don't touch anything
 	var lol []byte
 	err := tx.QueryRow("SELECT hash FROM treenodes WHERE hash = $1", rec.Hash()).Scan(&lol)

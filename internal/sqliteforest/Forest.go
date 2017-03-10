@@ -61,7 +61,7 @@ func (fst *Forest) DumpDOT(out io.Writer) {
 	}
 	var count int
 	for dump.Next() {
-		var item Record
+		var item fullNode
 		var hash []byte
 		dump.Scan(&hash, &item.Key, &item.LeftHash, &item.RightHash)
 		fmt.Fprintf(out, "\"%x\" [label=\"%v\"]\n", hash[:8], item.Key)
