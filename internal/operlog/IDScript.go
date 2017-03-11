@@ -2,13 +2,13 @@ package operlog
 
 import (
 	"bytes"
-	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"io"
-	"log"
 	"regexp"
 	"strconv"
+
+	"golang.org/x/crypto/ed25519"
 )
 
 // IDScript is an identity script, which is simply represented in binary form.
@@ -82,9 +82,9 @@ func AssembleID(asm string) (IDScript, error) {
 func (ids IDScript) Verify(data []byte, sigs [][]byte) (err error) {
 	// we translate panics into error to avoid manually handling array oob, etc
 	defer func() {
-		/*if e := recover(); e != nil {
+		if e := recover(); e != nil {
 			err = ErrInvalidID
-		}*/
+		}
 	}()
 	// verifying progress will be recorded in stack
 	stack := make([]int, 0, 10)
@@ -107,13 +107,10 @@ func (ids IDScript) Verify(data []byte, sigs [][]byte) (err error) {
 	keyIdx := 0
 	// loop through the IDScript and interpret it
 	for {
-		log.Println("stack:", stack)
 		switch b1 := next(); b1 {
 		case -1:
-			log.Println("b1 = EOF")
 			goto out
 		case 0xFF:
-			log.Println("b1 = .quorum")
 			// Quorum node
 			need := next()
 			max := next()
@@ -131,19 +128,16 @@ func (ids IDScript) Verify(data []byte, sigs [][]byte) (err error) {
 				push(0)
 			}
 		default:
-			log.Printf("b1 = %X\n", b1)
 			// Key node
 			b2 := next()
 			if b2 == -1 {
 				err = ErrInvalidID
 				return
 			}
-			log.Printf("b2 = %X\n", b2)
 			switch uint(b1*256) + uint(b2) {
 			case 0x0001:
-				log.Println("ed25519")
 				// Ed25519, 32 bytes
-				pubKey := make([]byte, 32)
+				pubKey := ed25519.PublicKey(make([]byte, 32))
 				_, e := io.ReadFull(buf, pubKey)
 				if e != nil {
 					err = ErrInvalidID
@@ -151,11 +145,11 @@ func (ids IDScript) Verify(data []byte, sigs [][]byte) (err error) {
 				}
 				signat := sigs[keyIdx]
 				keyIdx++
-				// XXX placeholder to make j3sawyer's wrong tests pass
-				if subtle.ConstantTimeCompare(pubKey, signat) == 1 {
-					push(1)
-				} else {
+				// verify signature against key and data
+				if !ed25519.Verify(pubKey, data, signat) {
 					push(0)
+				} else {
+					push(1)
 				}
 			default:
 				return ErrInvalidID
