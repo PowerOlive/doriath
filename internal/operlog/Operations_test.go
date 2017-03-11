@@ -8,7 +8,8 @@ import (
 func TestToBytes(t *testing.T) {
 	id, err := AssembleID(".ed25519 d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\n.ed25519 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c\t.quorum 1. 2.")
 	if err != nil {
-		t.Error("error")
+		t.Error(err)
+		return
 	}
 
 	s1, _ := hex.DecodeString("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
@@ -21,7 +22,8 @@ func TestToBytes(t *testing.T) {
 func TestFromBytes(t *testing.T) {
 	id, err := AssembleID(".ed25519 d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\n.ed25519 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c\t.quorum 1. 2.")
 	if err != nil {
-		t.Error("error")
+		t.Error(err)
+		return
 	}
 
 	s1, _ := hex.DecodeString("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
@@ -33,17 +35,20 @@ func TestFromBytes(t *testing.T) {
 	another := Operation{}
 	err = another.FromBytes(source)
 	if err != nil {
-		t.Error("error")
+		t.Error(err)
+		return
 	}
 
 	constructed := another.ToBytes()
 	if len(source) != len(constructed) {
-		t.Error("error")
+		t.Error(err)
+		return
 	}
 
 	for i := range constructed {
 		if source[i] != constructed[i] {
-			t.Error("error")
+			t.Error(err)
+			return
 		}
 	}
 }
@@ -53,7 +58,8 @@ func TestFromBytesBadIdScriptLength(t *testing.T) {
 	another := Operation{}
 	err := another.FromBytes(source)
 	if err == nil {
-		t.Error("error")
+		t.Error(err)
+		return
 	}
 }
 
@@ -62,7 +68,8 @@ func TestFromBytesBadIdScript(t *testing.T) {
 	another := Operation{}
 	err := another.FromBytes(source)
 	if err == nil {
-		t.Error("error")
+		t.Error(err)
+		return
 	}
 }
 
@@ -71,7 +78,8 @@ func TestFromBytesBadDataLen(t *testing.T) {
 	another := Operation{}
 	err := another.FromBytes(source)
 	if err == nil {
-		t.Error("error")
+		t.Error(err)
+		return
 	}
 }
 
@@ -80,7 +88,8 @@ func TestFromBytesBadData(t *testing.T) {
 	another := Operation{}
 	err := another.FromBytes(source)
 	if err == nil {
-		t.Error("error")
+		t.Error(err)
+		return
 	}
 }
 
@@ -89,7 +98,8 @@ func TestFromBytesBadSigLen(t *testing.T) {
 	another := Operation{}
 	err := another.FromBytes(source)
 	if err == nil {
-		t.Error("error")
+		t.Error(err)
+		return
 	}
 }
 
@@ -98,7 +108,8 @@ func TestFromBytesBadSlen(t *testing.T) {
 	another := Operation{}
 	err := another.FromBytes(source)
 	if err == nil {
-		t.Error("error")
+		t.Error(err)
+		return
 	}
 }
 
@@ -107,6 +118,7 @@ func TestFromBytesBadSig(t *testing.T) {
 	another := Operation{}
 	err := another.FromBytes(source)
 	if err == nil {
-		t.Error("error")
+		t.Error(err)
+		return
 	}
 }

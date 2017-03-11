@@ -2,6 +2,7 @@ package operlog
 
 import (
 	"encoding/hex"
+	"log"
 	"testing"
 )
 
@@ -72,41 +73,46 @@ func TestSimpleVerifySuccess(t *testing.T) {
 	id, err := AssembleID(".ed25519 d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\n.ed25519 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c\t.quorum 1. 2.")
 	if err != nil {
 		t.Error("error")
+		return
 	}
 
+	log.Printf("result of assembly: %X\n", id)
+
 	s1, _ := hex.DecodeString("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
-	var sigs = [][]byte{s1}
-	err = id.Verify(sigs)
+	var sigs = [][]byte{s1, nil}
+	err = id.Verify(nil, sigs)
 	if err != nil {
-		t.Error("error")
+		t.Error(err)
 	}
 }
 
 func TestSimpleVerifyFail(t *testing.T) {
 	id, err := AssembleID(".ed25519 d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\n.ed25519 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c\t.quorum 1. 2.")
 	if err != nil {
-		t.Error("error")
+		t.Error(err)
+		return
 	}
 
 	s1, _ := hex.DecodeString("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511f")
-	var sigs = [][]byte{s1}
-	err = id.Verify(sigs)
+	var sigs = [][]byte{s1, nil}
+	err = id.Verify(nil, sigs)
 	if err == nil {
-		t.Error("error")
+		t.Error(err)
 	}
 }
 
 func TestSimpleDiffTypesKeys(t *testing.T) {
 	id, err := AssembleID(".ed25519 d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\n.ed25519 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c\t.quorum 1. 2.")
 	if err != nil {
-		t.Error("error")
+		t.Error(err)
+		return
 	}
 
 	s1, _ := hex.DecodeString("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
 	s2, _ := hex.DecodeString("deadbeef") // suppose this is a key in different format
 	var sigs = [][]byte{s1, s2}
-	err = id.Verify(sigs)
+	err = id.Verify(nil, sigs)
 	if err != nil {
-		t.Error("error")
+		t.Error(err)
 	}
 }

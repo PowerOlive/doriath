@@ -3,7 +3,7 @@ package operlog
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
+	"io"
 )
 
 // Operation represents a single operation.
@@ -13,62 +13,43 @@ type Operation struct {
 	Signatures [][]byte
 }
 
+// SignedPart extracts the part that's signed by the signatures.
+func (op *Operation) SignedPart() []byte {
+	buf := new(bytes.Buffer)
+
+	// XXX writing to buf cannot fail since it's not a socket
+
+	// 4 bytes: length of next identity script; len return int
+	binary.Write(buf, binary.BigEndian, uint32(len(op.NextID)))
+	// identity script
+	binary.Write(buf, binary.BigEndian, op.NextID)
+
+	// 4 bytes: length of associated data; len returns int
+	binary.Write(buf, binary.BigEndian, uint32(len(op.Data)))
+	// associated data
+	binary.Write(buf, binary.BigEndian, op.Data)
+	return buf.Bytes()
+}
+
 // ToBytes serializes an operation to a byte array.
 func (op *Operation) ToBytes() []byte {
 	// Hint: make a bytes.Buffer and write to it using binary.Write
 	buf := new(bytes.Buffer)
+	buf.Write(op.SignedPart())
 
-	// 4 bytes: length of next identity script; len return int
-	err := binary.Write(buf, binary.BigEndian, uint32(len(op.NextID)))
-	if err != nil {
-		fmt.Println("failed id_len: ", err)
-		return nil
-	}
-	// identity script
-	err = binary.Write(buf, binary.BigEndian, op.NextID)
-	if err != nil {
-		fmt.Println("failed id: ", err)
-		return nil
-	}
-
-	// 4 bytes: length of associated data; len returns int
-	err = binary.Write(buf, binary.BigEndian, uint32(len(op.Data)))
-	if err != nil {
-		fmt.Println("failed data_len: ", err)
-		return nil
-	}
-	// associated data
-	err = binary.Write(buf, binary.BigEndian, op.Data)
-	if err != nil {
-		fmt.Println("failed data: ", err)
-		return nil
-	}
-
-	// 4 bytes: sum of all length of signatures
+	// 4 bytes: sum of all length of signatures plus the 2 bytes for the length
 	var l int
 	for i := range op.Signatures {
-		l += len(op.Signatures[i])
+		l += len(op.Signatures[i]) + 2
 	}
-	err = binary.Write(buf, binary.BigEndian, uint32(l))
-	if err != nil {
-		fmt.Println("failed sig_all_len: ", err)
-		return nil
-	}
+	binary.Write(buf, binary.BigEndian, uint32(l))
 	// all signatures
 	for i := range op.Signatures {
 		sig := op.Signatures[i]
 		// 2 bytes: length of a signature
-		err = binary.Write(buf, binary.BigEndian, uint16(len(sig)))
-		if err != nil {
-			fmt.Println("failed sig_len: ", err)
-			return nil
-		}
+		binary.Write(buf, binary.BigEndian, uint16(len(sig)))
 		// a signature
-		err = binary.Write(buf, binary.BigEndian, sig)
-		if err != nil {
-			fmt.Println("failed sign: ", err)
-			return nil
-		}
+		binary.Write(buf, binary.BigEndian, sig)
 	}
 
 	return buf.Bytes()
@@ -83,51 +64,54 @@ func (op *Operation) FromBytes(barr []byte) error {
 	var idlen, datalen, siglen uint32
 	err := binary.Read(buf, binary.BigEndian, &idlen)
 	if err != nil {
-		fmt.Println("failed to read idlen: ", err)
 		return err
 	}
 	// init with length idlen
 	op.NextID = make([]byte, idlen, idlen)
 	err = binary.Read(buf, binary.BigEndian, &(op.NextID))
 	if err != nil {
-		fmt.Println("failed to read id: ", err)
 		return err
 	}
 
 	err = binary.Read(buf, binary.BigEndian, &datalen)
 	if err != nil {
-		fmt.Println("failed to read datalen: ", err)
 		return err
 	}
 	// init with length datalen
 	op.Data = make([]byte, datalen, datalen)
 	err = binary.Read(buf, binary.BigEndian, &(op.Data))
 	if err != nil {
-		fmt.Println("failed to read data: ", err)
 		return err
 	}
 
 	err = binary.Read(buf, binary.BigEndian, &siglen)
 	if err != nil {
-		fmt.Println("failed to read siglen: ", err)
 		return err
 	}
 
-	op.Signatures = make([][]byte, 0, 1)
+	// the last siglen bytes contain all the signatures
+	sigbuf := make([]byte, siglen)
+	_, err = io.ReadFull(buf, sigbuf)
+	if err != nil {
+		return err
+	}
+	sbread := bytes.NewReader(sigbuf)
+	// nil is an empty array
+	op.Signatures = nil
 	var slen uint16
-	for siglen > 0 {
-		err = binary.Read(buf, binary.BigEndian, &slen)
+	for {
+		err = binary.Read(sbread, binary.BigEndian, &slen)
 		if err != nil {
-			fmt.Println("failed to read a slen: ", err)
+			if err == io.EOF {
+				break
+			}
 			return err
 		}
 		op.Signatures = append(op.Signatures, make([]byte, slen, slen))
-		err = binary.Read(buf, binary.BigEndian, op.Signatures[len(op.Signatures)-1])
+		err = binary.Read(sbread, binary.BigEndian, op.Signatures[len(op.Signatures)-1])
 		if err != nil {
-			fmt.Println("failed to read a sig: ", err)
 			return err
 		}
-		siglen -= uint32(slen)
 	}
 
 	return nil

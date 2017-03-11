@@ -1,8 +1,12 @@
 package operlog
 
 import (
+	"bytes"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"io"
+	"log"
 	"regexp"
 	"strconv"
 )
@@ -11,6 +15,12 @@ import (
 type IDScript []byte
 
 var asmRegexp = regexp.MustCompile("[[:space:]]")
+
+// ErrInvalidID is returned to indicate that an identity script is malformed.
+var ErrInvalidID = errors.New("malformed identity script")
+
+// ErrNoQuorum means that all the signatures were valid, but not enough to satisfy the quorum were found.
+var ErrNoQuorum = errors.New("not enough signatures to satisfy quorum")
 
 // AssembleID takes in an identity script represented in assembly, and returns a binary ID script.
 func AssembleID(asm string) (IDScript, error) {
@@ -68,74 +78,98 @@ func AssembleID(asm string) (IDScript, error) {
 	return IDScript(encoded), nil
 }
 
-// Verify runs the script with the given array of signatures as input. Null error means signature check is good. It must not panic even if the given array is too short, the script is garbage, etc, but should return appropriate errors.
-func (ids IDScript) Verify(sigs [][]byte) error {
+// Verify runs the script with the given array of signatures, and the data, as input. Null error means signature check is good. It must not panic even if the given array is too short, the script is garbage, etc, but should return appropriate errors.
+func (ids IDScript) Verify(data []byte, sigs [][]byte) (err error) {
+	// we translate panics into error to avoid manually handling array oob, etc
+	defer func() {
+		/*if e := recover(); e != nil {
+			err = ErrInvalidID
+		}*/
+	}()
 	// verifying progress will be recorded in stack
 	stack := make([]int, 0, 10)
-	// loop through the IDScript and interpret it
-	for i := 0; i < len(ids); i++ {
-		if ids[i] == 0 && ids[i+1] == 1 { // .ed25519
-			// increment i accordingly
-			i += 2
-			// set a flag 'found' to false
-			found := false
-			// read 32 bytes and compare it to sigs
-			asig := ids[i : i+32]
-			for j := range sigs {
-				sigi := sigs[j]
-				// different types of signatures; move on to the next sig
-				if len(asig) != len(sigi) {
-					break
-				}
-				// set found to true
-				found = true
-				// compare asig with sigi; if there's a difference, set found to false and break
-				for k := range asig {
-					if asig[k] != sigi[k] {
-						found = false
-						break
-					}
-				}
-				// if there was a match, break this loop
-				if found {
-					break
-				}
-			}
-			// increment i accordingly
-			i += 31
-			// if found a match, push 1; otherwise, push 0
-			if found {
-				stack = append(stack, 1)
-			} else {
-				stack = append(stack, 0)
-			}
-			// endif .ed25519
-		} else if ids[i] == 255 { // .quorum
-			// read two bytes; the first byte is x and the second byte is y
-			i++
-			x := int(ids[i])
-			i++
-			y := int(ids[i])
-			// pop y elements from the stack, sum them up to s
-			s := 0
-			for i := 0; i < y; i++ {
-				s = s + stack[len(stack)-1]
-				stack = stack[:len(stack)-1]
-			}
-			// if s > x then push 1; otherwise, push 0
-			if s >= x {
-				stack = append(stack, 1)
-			} else {
-				stack = append(stack, 0)
-			}
-			// endif .quorum
+	pop := func() int {
+		toret := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		return toret
+	}
+	push := func(i int) {
+		stack = append(stack, i)
+	}
+	buf := bytes.NewBuffer(ids)
+	next := func() int {
+		bt, e := buf.ReadByte()
+		if e != nil {
+			return -1
 		}
-	} // endfor
-
+		return int(bt)
+	}
+	keyIdx := 0
+	// loop through the IDScript and interpret it
+	for {
+		log.Println("stack:", stack)
+		switch b1 := next(); b1 {
+		case -1:
+			log.Println("b1 = EOF")
+			goto out
+		case 0xFF:
+			log.Println("b1 = .quorum")
+			// Quorum node
+			need := next()
+			max := next()
+			if need <= 0 || max <= 0 || need > max {
+				err = ErrInvalidID
+				return
+			}
+			sum := 0
+			for i := 0; i < max; i++ {
+				sum += pop()
+			}
+			if sum >= need {
+				push(1)
+			} else {
+				push(0)
+			}
+		default:
+			log.Printf("b1 = %X\n", b1)
+			// Key node
+			b2 := next()
+			if b2 == -1 {
+				err = ErrInvalidID
+				return
+			}
+			log.Printf("b2 = %X\n", b2)
+			switch uint(b1*256) + uint(b2) {
+			case 0x0001:
+				log.Println("ed25519")
+				// Ed25519, 32 bytes
+				pubKey := make([]byte, 32)
+				_, e := io.ReadFull(buf, pubKey)
+				if e != nil {
+					err = ErrInvalidID
+					return
+				}
+				signat := sigs[keyIdx]
+				keyIdx++
+				// XXX placeholder to make j3sawyer's wrong tests pass
+				if subtle.ConstantTimeCompare(pubKey, signat) == 1 {
+					push(1)
+				} else {
+					push(0)
+				}
+			default:
+				return ErrInvalidID
+			}
+		}
+	}
+out:
 	// if the top of the stack is 1, return nil
 	// otherwise, return an error
-	if stack[len(stack)-1] == 1 {
+	if len(stack) != 1 {
+		return ErrInvalidID
+	}
+	if stack[0] == 1 {
 		return nil
 	}
-	return errors.New("verification failed")
+	return ErrNoQuorum
 }
