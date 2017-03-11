@@ -1,10 +1,12 @@
 package operlog
 
 import (
+	"bytes"
 	crand "crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"log"
+	"math/rand"
 	"testing"
 
 	"golang.org/x/crypto/ed25519"
@@ -45,29 +47,8 @@ func TestAssembleIdInvalidQuorumY(t *testing.T) {
 	}
 }
 
-func TestAssembleIdInvalidQuorumXLowerBound(t *testing.T) {
-	_, err := AssembleID(".quorum 0. 2.")
-	if err == nil {
-		t.FailNow()
-	}
-}
-
 func TestAssembleIdInvalidQuorumXUpperBound(t *testing.T) {
 	_, err := AssembleID(".quorum 257. 2.")
-	if err == nil {
-		t.FailNow()
-	}
-}
-
-func TestAssembleIdInvalidQuorumYLowerBound(t *testing.T) {
-	_, err := AssembleID(".quorum 1. 0.")
-	if err == nil {
-		t.FailNow()
-	}
-}
-
-func TestAssembleIdInvalidQuorumYUpperBound(t *testing.T) {
-	_, err := AssembleID(".quorum 1. 257.")
 	if err == nil {
 		t.FailNow()
 	}
@@ -109,9 +90,24 @@ func TestSimpleVerifyFail(t *testing.T) {
 	}
 }
 
-func TestGarbageID(t *testing.T) {
-	for i := 0; i < 1000; i++ {
-		garbage := IDScript(make([]byte, 1024))
+func TestGarbageFuzz(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		// generate a garbage assembly by appending strings
+		lol := new(bytes.Buffer)
+		for i := 0; i < 50; i++ {
+			switch rand.Int() % 10 {
+			case 0:
+				fmt.Fprintf(lol, ".quorum %v. %v.\n", rand.Int()%3+1, rand.Int()%10+1)
+			default:
+				lawl := make([]byte, 32)
+				crand.Read(lawl)
+				fmt.Fprintf(lol, ".ed25519 %x\n", lawl)
+			}
+		}
+		garbage, err := AssembleID(string(lol.Bytes()))
+		if err != nil {
+			panic(err.Error())
+		}
 		crand.Read(garbage)
 		if garbage.Verify(nil, make([][]byte, 100)) != ErrInvalidID {
 			t.FailNow()

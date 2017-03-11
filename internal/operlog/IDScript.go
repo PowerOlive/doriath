@@ -14,7 +14,7 @@ import (
 // IDScript is an identity script, which is simply represented in binary form.
 type IDScript []byte
 
-var asmRegexp = regexp.MustCompile("[[:space:]]")
+var asmRegexp = regexp.MustCompile("[[:space:]]+")
 
 // ErrInvalidID is returned to indicate that an identity script is malformed.
 var ErrInvalidID = errors.New("malformed identity script")
@@ -27,51 +27,42 @@ func AssembleID(asm string) (IDScript, error) {
 	tokens := asmRegexp.Split(asm, -1)
 	var encoded []byte
 
-	var t string
+	assemTok := func(tok string) []byte {
+		if len(tok) < 2 {
+			return nil
+		}
+		if tok[0] == '.' {
+			switch tok {
+			case ".ed25519":
+				return []byte{0x00, 0x01}
+			case ".quorum":
+				return []byte{0xFF}
+			default:
+				return nil
+			}
+		} else if tok[len(tok)-1] == '.' {
+			numstr := tok[:len(tok)-1]
+			num, err := strconv.Atoi(numstr)
+			if err != nil || num >= 256 {
+				return nil
+			}
+			return []byte{byte(num)}
+		}
+		// it must be hex then
+		bts, err := hex.DecodeString(tok)
+		if err != nil {
+			return nil
+		}
+		return bts
+	}
+
 	for i := 0; i < len(tokens); i++ {
-		t = tokens[i]
-		if t == ".ed25519" {
-			i++
-			d := tokens[i]
-
-			op, _ := hex.DecodeString("0001")
-			dh, err := hex.DecodeString(d)
-			// possible invalid hex string
-			if err != nil {
-				return IDScript(nil), err
+		if len(tokens[i]) > 0 {
+			frag := assemTok(tokens[i])
+			if frag == nil {
+				return IDScript(nil), errors.New("invalid token")
 			}
-			// XXX: should we check the length of the key?
-
-			// encode the assembly
-			encoded = append(encoded, op...)
-			encoded = append(encoded, dh...)
-		} else if t == ".quorum" {
-			i++
-			x := tokens[i]
-			i++
-			y := tokens[i]
-
-			xi, err := strconv.Atoi(x[:len(x)-1])
-			if err != nil { // x is non-numeric
-				return IDScript(nil), err
-			} else if xi < 1 || xi > 256 { // x is out of boundary
-				return IDScript(nil), errors.New("out of boundary: x")
-			}
-			yi, err := strconv.Atoi(y[:len(y)-1])
-			if err != nil { // y is non-numeric
-				return IDScript(nil), err
-			} else if yi < 1 || yi > 256 { // y is out of boundary
-				return IDScript(nil), errors.New("out of boundary: y")
-			}
-
-			// encode the assembly
-			b, _ := hex.DecodeString("FF")
-			encoded = append(encoded, b...)
-			encoded = append(encoded, byte(xi))
-			encoded = append(encoded, byte(yi))
-		} else {
-			// unknown directive
-			return IDScript(nil), errors.New("unrecognized direcrive: " + t)
+			encoded = append(encoded, frag...)
 		}
 	}
 
