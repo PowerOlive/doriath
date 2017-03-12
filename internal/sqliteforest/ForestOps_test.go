@@ -50,10 +50,12 @@ func TestWeirdProofs(t *testing.T) {
 				return
 			}
 			// corupted proof should fail
-			lol := make([]byte, 32)
+			lol := make([]byte, 32*3+10)
 			rand.Read(lol)
-			proof[rand.Int()%len(proof)].FromBytes(lol)
-			if proof.Check(roots[i], key, nil) {
+			var badnode AbbrNode
+			badnode.FromBytes(lol)
+			proof[rand.Int()%len(proof)] = badnode
+			if proof.Check(roots[i], key, value) {
 				t.Error("should have failed corrupted proof!")
 				return
 			}

@@ -125,10 +125,10 @@ func (ids IDScript) Verify(data []byte, sigs [][]byte) (err error) {
 				err = ErrInvalidID
 				return
 			}
-			switch uint(b1*256) + uint(b2) {
+			switch uint(b1<<8) | uint(b2) {
 			case 0x0001:
 				// Ed25519, 32 bytes
-				pubKey := ed25519.PublicKey(make([]byte, 32))
+				pubKey := make([]byte, 32)
 				_, e := io.ReadFull(buf, pubKey)
 				if e != nil {
 					err = ErrInvalidID
