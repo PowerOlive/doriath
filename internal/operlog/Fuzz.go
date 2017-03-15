@@ -1,3 +1,5 @@
+// +build gofuzz
+
 package operlog
 
 // Fuzz function for use with go-fuzz
