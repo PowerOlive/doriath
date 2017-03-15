@@ -5,7 +5,6 @@ import (
 	crand "crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"math/rand"
 	"testing"
 
@@ -64,8 +63,6 @@ func TestSimpleVerifySuccess(t *testing.T) {
 		t.Error(err)
 		return
 	}
-
-	log.Printf("result of assembly: %X\n", id)
 
 	sig := ed25519.Sign(SK, nil)
 	var sigs = [][]byte{sig, nil}

@@ -3,8 +3,12 @@ package operlog
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 )
+
+// ErrInvalidOp signals and invalid operation
+var ErrInvalidOp = errors.New("invalid operation")
 
 // Operation represents a single operation.
 type Operation struct {
@@ -66,8 +70,11 @@ func (op *Operation) FromBytes(barr []byte) error {
 	if err != nil {
 		return err
 	}
+	if idlen > 1024*32 {
+		return ErrInvalidOp
+	}
 	// init with length idlen
-	op.NextID = make([]byte, idlen, idlen)
+	op.NextID = make([]byte, idlen)
 	err = binary.Read(buf, binary.BigEndian, &(op.NextID))
 	if err != nil {
 		return err
@@ -77,8 +84,11 @@ func (op *Operation) FromBytes(barr []byte) error {
 	if err != nil {
 		return err
 	}
+	if datalen > 1024*128 {
+		return ErrInvalidOp
+	}
 	// init with length datalen
-	op.Data = make([]byte, datalen, datalen)
+	op.Data = make([]byte, datalen)
 	err = binary.Read(buf, binary.BigEndian, &(op.Data))
 	if err != nil {
 		return err
@@ -88,7 +98,9 @@ func (op *Operation) FromBytes(barr []byte) error {
 	if err != nil {
 		return err
 	}
-
+	if siglen > 1024*32 {
+		return ErrInvalidOp
+	}
 	// the last siglen bytes contain all the signatures
 	sigbuf := make([]byte, siglen)
 	_, err = io.ReadFull(buf, sigbuf)
@@ -107,12 +119,17 @@ func (op *Operation) FromBytes(barr []byte) error {
 			}
 			return err
 		}
+		if slen > 1024*2 {
+			return ErrInvalidOp
+		}
 		op.Signatures = append(op.Signatures, make([]byte, slen, slen))
 		err = binary.Read(sbread, binary.BigEndian, op.Signatures[len(op.Signatures)-1])
 		if err != nil {
 			return err
 		}
 	}
-
+	if buf.Len() != 0 {
+		return ErrInvalidOp
+	}
 	return nil
 }

@@ -33,7 +33,7 @@ AACYIFH9HkunRLu+aA4f7hRne6Gjw1QL97HNtgboVyM+DmG8Zkn//wAdAeNimQ==`)
 	}()
 }
 
-func TestMerkle(t *testing.T) {
+func TestCheckMerkle(t *testing.T) {
 	dehex := func(s string) []byte {
 		res, _ := hex.DecodeString(s)
 		return res
@@ -48,7 +48,7 @@ func TestMerkle(t *testing.T) {
 	tx.Unpack(bytes.NewReader(dehex(
 		`0100000001e6b97bce8d7522de14a79e206a035ba328c9ba1a7ea6bbf8353efde217fdb5c5020000008a473044022011cd3406663fddba853090f621555e2d422e229d25fb245b5cc93ba85746e60402200ddba7b8d5ce1445577bb7641ddf875bf431e29fcbe8cc57e6873e80185645d9014104e9c4c6ad2be6d97bd4bbba18fc51e62a0b4b393735fb8c0fb859253aaf4427789ce6d4d1b653c29d67b99e9dcca1fbfaf1ab86aebe50b5b277ecd8ba8dbcac65ffffffff0354150000000000001976a914b22a5a0f48c42a0219a4bfe146e2a2432d9f9e1388ac31b80000000000001976a9140044b6662b972525f7fb6c2b40d51aa4cb56bc5d88acdbc20000000000001976a9140044b6662b972525f7fb6c2b40d51aa4cb56bc5d88ac00000000`)))
 	res := func() bool {
-		return hdr.CheckExists([][]byte{
+		return hdr.CheckMerkle([][]byte{
 			dehexle("d844420b0f01398953b809b844bc9a5987f41d1373dab3180b6b4fe4de8633c4"),
 			dehexle("3c1f63dae13e84aaba94d6ee12c7b48fa7b470eacfbe6e183ba008b7cbc3725c"),
 			dehexle("0c5141f62f1ad58a6ebcee98868451ff392bc49bfb6daa5e4f492b6d175812cf"),

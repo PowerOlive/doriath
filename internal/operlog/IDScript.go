@@ -56,6 +56,10 @@ func AssembleID(asm string) (IDScript, error) {
 		return bts
 	}
 
+	if len(tokens) == 0 {
+		return nil, ErrInvalidID
+	}
+
 	for i := 0; i < len(tokens); i++ {
 		if len(tokens[i]) > 0 {
 			frag := assemTok(tokens[i])

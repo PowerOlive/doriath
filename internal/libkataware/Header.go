@@ -48,8 +48,8 @@ func (hdr *Header) Deserialize(ob []byte) {
 	hdr.Nonce = binary.LittleEndian.Uint32(b[76:80])
 }
 
-// CheckExists checks that a certain transaction exists in the block identified by the header, given a Merkle tree branch.
-func (hdr *Header) CheckExists(merkle [][]byte, pos int, tx Transaction) bool {
+// CheckMerkle checks that a certain transaction exists in the block identified by the header, given a Merkle tree branch.
+func (hdr *Header) CheckMerkle(merkle [][]byte, pos int, tx Transaction) bool {
 	h := tx.Hash256()
 	for i, elem := range merkle {
 		if (uint(pos)>>uint(i))&1 != 0 {

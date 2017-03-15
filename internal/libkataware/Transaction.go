@@ -3,6 +3,7 @@ package libkataware
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 )
 
@@ -50,6 +51,9 @@ func (tx *Transaction) Unpack(in io.Reader) error {
 	if err != nil {
 		return err
 	}
+	if numin > 128*1024 {
+		return errors.New("unreasonable numin")
+	}
 	tx.Inputs = make([]TxInput, numin)
 	for i := range tx.Inputs {
 		err = tx.Inputs[i].Unpack(in)
@@ -60,6 +64,9 @@ func (tx *Transaction) Unpack(in io.Reader) error {
 	numout, err := ReadVarint(in)
 	if err != nil {
 		return err
+	}
+	if numout > 128*1024 {
+		return errors.New("unreasonable numout")
 	}
 	tx.Outputs = make([]TxOutput, numout)
 	for i := range tx.Outputs {
@@ -112,6 +119,9 @@ func (txi *TxInput) Unpack(in io.Reader) error {
 	if err != nil {
 		return err
 	}
+	if scrlen > 128*1024 {
+		return errors.New("unreasonable scrlen")
+	}
 	txi.Script = make([]byte, scrlen)
 	_, err = io.ReadFull(in, txi.Script)
 	if err != nil {
@@ -146,6 +156,9 @@ func (txo *TxOutput) Unpack(in io.Reader) error {
 	scrlen, err := ReadVarint(in)
 	if err != nil {
 		return err
+	}
+	if scrlen > 128*1024 {
+		return errors.New("unreasonable scrlen")
 	}
 	txo.Script = make([]byte, scrlen)
 	_, err = io.ReadFull(in, txo.Script)

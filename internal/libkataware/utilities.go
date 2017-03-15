@@ -3,6 +3,7 @@ package libkataware
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"io"
 )
 
@@ -30,22 +31,35 @@ func ReadVarint(r io.Reader) (res uint64, err error) {
 	if err != nil {
 		return
 	}
+	noncan := errors.New("non-canonical varint")
 	switch discr {
 	case 0xFF:
 		// 64-bit
 		err = binary.Read(r, binary.LittleEndian, &res)
+		min := uint64(0x100000000)
+		if res < min {
+			err = noncan
+		}
 		return
 	case 0xFE:
 		// 32-bit
 		var r32 uint32
 		err = binary.Read(r, binary.LittleEndian, &r32)
 		res = uint64(r32)
+		min := uint64(0x10000)
+		if res < min {
+			err = noncan
+		}
 		return
 	case 0xFD:
 		// 16-bit
 		var r16 uint16
 		err = binary.Read(r, binary.LittleEndian, &r16)
 		res = uint64(r16)
+		min := uint64(0xfd)
+		if res < min {
+			err = noncan
+		}
 		return
 	default:
 		// 8-bit
