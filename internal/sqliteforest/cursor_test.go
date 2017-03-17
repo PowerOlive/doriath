@@ -20,7 +20,8 @@ func TestAllocDict(t *testing.T) {
 	defer tx.Rollback()
 	towrite := make(map[string][]byte)
 	for i := 0; i < 25; i++ {
-		towrite[fmt.Sprintf("key%v", i)] = []byte(fmt.Sprintf("value%v", i))
+		lol := demoOp(fmt.Sprintf("value%v", i))
+		towrite[fmt.Sprintf("key%v", i)] = lol.ToBytes()
 	}
 	root, err := allocDict(tx, towrite)
 	if err != nil {
@@ -29,7 +30,7 @@ func TestAllocDict(t *testing.T) {
 	}
 	tx.Commit()
 	for i := 0; i < 25; i++ {
-		lol, err := frst.FindProof(root.loc, fmt.Sprintf("key%v", i))
+		lol, _, err := frst.FindProof(root.loc, fmt.Sprintf("key%v", i))
 		if err != nil {
 			t.Error(err)
 			return

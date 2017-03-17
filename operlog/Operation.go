@@ -12,16 +12,26 @@ var ErrInvalidOp = errors.New("invalid operation")
 
 // Operation represents a single operation.
 type Operation struct {
+	Nonce      []byte
 	NextID     IDScript
 	Data       []byte
 	Signatures [][]byte
 }
 
+func (op *Operation) fixNonce() {
+	if len(op.Nonce) != 16 {
+		nnc := make([]byte, 16)
+		copy(op.Nonce, nnc)
+		op.Nonce = nnc
+	}
+}
+
 // SignedPart extracts the part that's signed by the signatures.
 func (op *Operation) SignedPart() []byte {
+	op.fixNonce()
 	buf := new(bytes.Buffer)
 
-	// XXX writing to buf cannot fail since it's not a socket
+	buf.Write(op.Nonce)
 
 	// 4 bytes: length of next identity script; len return int
 	binary.Write(buf, binary.BigEndian, uint32(len(op.NextID)))
@@ -35,8 +45,29 @@ func (op *Operation) SignedPart() []byte {
 	return buf.Bytes()
 }
 
-// ToBytes serializes an operation to a byte array.
+// FromBytes is a convenience wrapper around Unpack.
+func (op *Operation) FromBytes(b []byte) error {
+	nr := bytes.NewReader(b)
+	err := op.Unpack(nr)
+	if err != nil {
+		return err
+	}
+	if nr.Len() != 0 {
+		return ErrInvalidOp
+	}
+	return nil
+}
+
+// ToBytes is a convenience wrapper around Pack.
 func (op *Operation) ToBytes() []byte {
+	op.fixNonce()
+	buf := new(bytes.Buffer)
+	op.Pack(buf)
+	return buf.Bytes()
+}
+
+// Pack serializes an operation to an output.
+func (op *Operation) Pack(out io.Writer) error {
 	// Hint: make a bytes.Buffer and write to it using binary.Write
 	buf := new(bytes.Buffer)
 	buf.Write(op.SignedPart())
@@ -56,56 +87,63 @@ func (op *Operation) ToBytes() []byte {
 		binary.Write(buf, binary.BigEndian, sig)
 	}
 
-	return buf.Bytes()
-}
-
-// FromBytes fills an operation struct by parsing a byte array.
-func (op *Operation) FromBytes(barr []byte) error {
-	// Note that op is passed by reference.
-	// Hint: make a bytes.Buffer and read from it using binary.Read
-	buf := bytes.NewReader(barr)
-
-	var idlen, datalen, siglen uint32
-	err := binary.Read(buf, binary.BigEndian, &idlen)
+	_, err := io.Copy(out, buf)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+// Unpack fills an operation struct by deserializing an input.
+func (op *Operation) Unpack(in io.Reader) error {
+	// Note that op is passed by reference.
+	// Hint: make a bytes.Buffer and read from it using binary.Read
+	op.fixNonce()
+	_, err := io.ReadFull(in, op.Nonce)
+	if err != nil {
+		return ErrInvalidOp
+	}
+	var idlen, datalen, siglen uint32
+	err = binary.Read(in, binary.BigEndian, &idlen)
+	if err != nil {
+		return ErrInvalidOp
 	}
 	if idlen > 1024*32 {
 		return ErrInvalidOp
 	}
 	// init with length idlen
 	op.NextID = make([]byte, idlen)
-	err = binary.Read(buf, binary.BigEndian, &(op.NextID))
+	err = binary.Read(in, binary.BigEndian, &(op.NextID))
 	if err != nil {
-		return err
+		return ErrInvalidOp
 	}
 
-	err = binary.Read(buf, binary.BigEndian, &datalen)
+	err = binary.Read(in, binary.BigEndian, &datalen)
 	if err != nil {
-		return err
+		return ErrInvalidOp
 	}
 	if datalen > 1024*128 {
 		return ErrInvalidOp
 	}
 	// init with length datalen
 	op.Data = make([]byte, datalen)
-	err = binary.Read(buf, binary.BigEndian, &(op.Data))
+	err = binary.Read(in, binary.BigEndian, &(op.Data))
 	if err != nil {
-		return err
+		return ErrInvalidOp
 	}
 
-	err = binary.Read(buf, binary.BigEndian, &siglen)
+	err = binary.Read(in, binary.BigEndian, &siglen)
 	if err != nil {
-		return err
+		return ErrInvalidOp
 	}
 	if siglen > 1024*32 {
 		return ErrInvalidOp
 	}
 	// the last siglen bytes contain all the signatures
 	sigbuf := make([]byte, siglen)
-	_, err = io.ReadFull(buf, sigbuf)
+	_, err = io.ReadFull(in, sigbuf)
 	if err != nil {
-		return err
+		return ErrInvalidOp
 	}
 	sbread := bytes.NewReader(sigbuf)
 	// nil is an empty array
@@ -125,11 +163,8 @@ func (op *Operation) FromBytes(barr []byte) error {
 		op.Signatures = append(op.Signatures, make([]byte, slen, slen))
 		err = binary.Read(sbread, binary.BigEndian, op.Signatures[len(op.Signatures)-1])
 		if err != nil {
-			return err
+			return ErrInvalidOp
 		}
-	}
-	if buf.Len() != 0 {
-		return ErrInvalidOp
 	}
 	return nil
 }

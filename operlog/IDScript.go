@@ -17,7 +17,7 @@ type IDScript []byte
 var asmRegexp = regexp.MustCompile("[[:space:]]+")
 
 // ErrInvalidID is returned to indicate that an identity script is malformed.
-var ErrInvalidID = errors.New("malformed identity script")
+var ErrInvalidID = errors.New("malformed identity scritpt")
 
 // ErrNoQuorum means that all the signatures were valid, but not enough to satisfy the quorum were found.
 var ErrNoQuorum = errors.New("not enough signatures to satisfy quorum")

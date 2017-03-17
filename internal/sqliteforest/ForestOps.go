@@ -5,10 +5,12 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/rensa-labs/doriath/internal/libkataware"
+	"github.com/rensa-labs/doriath/operlog"
 )
 
 // fullNode is a struct representing a node in the forest.
@@ -39,7 +41,7 @@ func (rec fullNode) Hash() []byte {
 type Proof []AbbrNode
 
 // Check checks the proof for correctness
-func (pr Proof) Check(rootHash []byte, key string, value []byte) bool {
+func (pr Proof) Check(rootHash []byte, key string, valhash []byte) bool {
 	// General idea of the algorithm:
 	// Check that there are no duplicate keys in the proof.
 	// For each pair of adjacent nodes x and y in the hash,
@@ -58,7 +60,7 @@ func (pr Proof) Check(rootHash []byte, key string, value []byte) bool {
 	if len(pr) == 1 {
 		return comp(H(pr[0].ToBytes()), rootHash) == 1 &&
 			pr[0].Key == key &&
-			comp(pr[0].VHash, H(value)) == 1
+			comp(pr[0].VHash, valhash) == 1
 	}
 	// general case
 	seenKeys := make(map[string]bool)
@@ -90,12 +92,12 @@ func (pr Proof) Check(rootHash []byte, key string, value []byte) bool {
 	}
 	// check last node
 	last := pr[len(pr)-1]
-	if value == nil {
+	if valhash == nil {
 		return last.Key != key &&
 			comp(last.LHash, make([]byte, 32)) == 1 &&
 			comp(last.LHash, make([]byte, 32)) == 1
 	}
-	return last.Key == key && comp(last.VHash, H(value)) == 1
+	return last.Key == key && comp(last.VHash, valhash) == 1
 }
 
 // AbbrNode is a struct representing an abbreviated node used in a proof.
@@ -137,17 +139,37 @@ func (an AbbrNode) String() string {
 		an.Key, an.VHash[:10], an.LHash[:10], an.RHash[:10])
 }
 
+// SearchStaging searches the staging area for a key and returns all the waiting operations.
+func (fst *Forest) SearchStaging(key string) (value []operlog.Operation, err error) {
+	var rawops []byte
+	err = fst.sdb.QueryRow("SELECT value FROM uncommitted WHERE key=$1", key).Scan(&rawops)
+	if err != nil {
+		return
+	}
+	srops := bytes.NewReader(rawops)
+	for srops.Len() != 0 {
+		var op operlog.Operation
+		err := op.Unpack(srops)
+		if err != nil {
+			panic("CORRUPT DB: failed while unpacking an operation in staging!")
+		}
+		value = append(value, op)
+	}
+	return
+}
+
 // FindProof returns a proof of (non)existence given a tree-root hash and a key.
-func (fst *Forest) FindProof(trhash []byte, key string) (proof Proof, err error) {
+func (fst *Forest) FindProof(trhash []byte, key string) (proof Proof, value []operlog.Operation,
+	err error) {
 	tx, err := fst.sdb.Begin()
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer tx.Commit()
 	rcurs := cursor{tx, trhash}
 	ptrs, err := searchTree(rcurs, key)
 	if err != nil {
-		return nil, err
+		return
 	}
 	for _, v := range ptrs {
 		var rec fullNode
@@ -167,6 +189,15 @@ func (fst *Forest) FindProof(trhash []byte, key string) (proof Proof, err error)
 			LHash: rec.LeftHash,
 			RHash: rec.RightHash,
 		})
+		srops := bytes.NewReader(rec.Value)
+		for srops.Len() != 0 {
+			var op operlog.Operation
+			err := op.Unpack(srops)
+			if err != nil {
+				panic("CORRUPT DB: failed while unpacking an operation!")
+			}
+			value = append(value, op)
+		}
 	}
 	return
 }
@@ -193,15 +224,31 @@ func (fst *Forest) TreeRoots() (roots [][]byte, err error) {
 	return
 }
 
-// StageDiff atomically stages a key and value into the staging area.
-func (fst *Forest) StageDiff(key string, value []byte) (err error) {
+// StageDiff atomically stages a key and operation into the staging area.
+func (fst *Forest) StageDiff(key string, op operlog.Operation) (err error) {
 	tx, err := fst.sdb.Begin()
 	if err != nil {
 		return
 	}
 	defer tx.Rollback()
+	value := op.ToBytes()
 	_, err = tx.Exec("INSERT INTO uncommitted VALUES ($1, $2)", key, value)
 	if err != nil {
+		isUnq, _ := regexp.MatchString("UNIQUE", err.Error())
+		if isUnq {
+			// We append instead
+			var existing []byte
+			err = tx.QueryRow("SELECT value FROM uncommitted WHERE key = $1", key).Scan(&existing)
+			if err != nil {
+				return
+			}
+			_, err = tx.Exec("UPDATE uncommitted SET value = $1 WHERE key = $2",
+				append(existing, value...), key)
+			if err != nil {
+				return
+			}
+			return tx.Commit()
+		}
 		return
 	}
 	return tx.Commit()

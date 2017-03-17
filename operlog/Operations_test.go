@@ -2,6 +2,7 @@ package operlog
 
 import (
 	"encoding/hex"
+	"io/ioutil"
 	"testing"
 )
 
@@ -16,7 +17,7 @@ func TestToBytes(t *testing.T) {
 	var sigs = [][]byte{s1}
 	op := Operation{NextID: id, Data: []byte{1, 2, 3, 4, 5, 6}, Signatures: sigs}
 
-	op.ToBytes()
+	op.Pack(ioutil.Discard)
 }
 
 func TestFromBytes(t *testing.T) {

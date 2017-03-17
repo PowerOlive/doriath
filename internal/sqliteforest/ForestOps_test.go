@@ -1,10 +1,19 @@
 package sqliteforest
 
 import (
+	"bytes"
 	"fmt"
 	"math/rand"
 	"testing"
+
+	"github.com/rensa-labs/doriath/internal/libkataware"
+	"github.com/rensa-labs/doriath/operlog"
 )
+
+func demoOp(data string) (val operlog.Operation) {
+	val.Data = []byte(data)
+	return
+}
 
 func TestWeirdProofs(t *testing.T) {
 	frst, err := OpenForest("file::memory:?cache=shared")
@@ -15,7 +24,7 @@ func TestWeirdProofs(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		for j := 0; j < 10; j++ {
 			key := fmt.Sprintf("key%v,%v", i, j)
-			value := []byte(fmt.Sprintf("val%v,%v", i, j))
+			value := demoOp(fmt.Sprintf("val%v,%v", i, j))
 			err = frst.StageDiff(key, value)
 			if err != nil {
 				t.Error(err)
@@ -32,9 +41,10 @@ func TestWeirdProofs(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		for j := 0; j < 10; j++ {
 			key := fmt.Sprintf("key%v,%v", i, j)
-			value := []byte(fmt.Sprintf("val%v,%v", i, j))
+			valop := demoOp(fmt.Sprintf("val%v,%v", i, j))
+			value := libkataware.DoubleSHA256(valop.ToBytes())
 			var proof Proof
-			proof, err = frst.FindProof(roots[i], key)
+			proof, _, err = frst.FindProof(roots[i], key)
 			if err != nil {
 				t.Error(err)
 				return
@@ -63,6 +73,37 @@ func TestWeirdProofs(t *testing.T) {
 	}
 }
 
+func TestMultipleOps(t *testing.T) {
+	frst, err := OpenForest("file::memory:?cache=shared")
+	defer frst.Close()
+	if err != nil {
+		panic(err)
+	}
+	operations := make([]operlog.Operation, 10)
+	for i := 0; i < 10; i++ {
+		operations[i] = demoOp(fmt.Sprintf("Data number %v", i))
+		frst.StageDiff("FOOBAR", operations[i])
+	}
+	res, err := frst.SearchStaging("FOOBAR")
+	if err != nil {
+		panic(err)
+	}
+	for i, v := range res {
+		if bytes.Compare(v.ToBytes(), operations[i].ToBytes()) != 0 {
+			t.FailNow()
+		}
+	}
+	frst.Commit()
+	tr, _ := frst.TreeRoots()
+	theroot := tr[len(tr)-1]
+	_, value, _ := frst.FindProof(theroot, "FOOBAR")
+	for i, v := range value {
+		if bytes.Compare(v.ToBytes(), operations[i].ToBytes()) != 0 {
+			t.FailNow()
+		}
+	}
+}
+
 func BenchmarkStaging(b *testing.B) {
 	frst, err := OpenForest("/var/tmp/benchStaging.db")
 	if err != nil {
@@ -70,10 +111,11 @@ func BenchmarkStaging(b *testing.B) {
 		return
 	}
 	frst.sdb.Exec("PRAGMA journal_mode=WAL")
+	frst.sdb.Exec("PRAGMA synchronous=NORMAL")
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		key := fmt.Sprintf("key%v", i)
-		value := make([]byte, 32)
+		value := demoOp("helloworld")
 		err := frst.StageDiff(key, value)
 		if err != nil {
 			b.Error(err)

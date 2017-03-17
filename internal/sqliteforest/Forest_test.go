@@ -77,7 +77,7 @@ func TestFindProofFailOnMissingDb(t *testing.T) {
 	RemoveTempDbFile(t, dbFileName)
 
 	// calling FindProof on fst will fail
-	_, err = fst.FindProof(root.loc, "key1")
+	_, _, err = fst.FindProof(root.loc, "key1")
 	if err == nil {
 		t.Error("we expected an error because fst is closed")
 	}
