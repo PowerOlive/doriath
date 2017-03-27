@@ -82,7 +82,8 @@ func (srv *Server) handTxchain(w http.ResponseWriter, r *http.Request) {
 		var blhsh []byte
 		blhsh, err = srv.btcClient.LocateTx(txhash)
 		if err != nil {
-			break
+			toadd.BlockIdx = -1
+			continue
 		}
 		toadd.BlockIdx, err = srv.btcClient.GetBlockIdx(blhsh)
 		if err != nil {
