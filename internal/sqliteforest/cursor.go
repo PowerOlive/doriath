@@ -9,11 +9,13 @@ type cursor struct {
 }
 
 func (cr cursor) getRecord() (fullNode, error) {
-	var toret fullNode
-	var lol []byte
-	err := cr.tx.QueryRow("SELECT * FROM treenodes WHERE hash = $1", cr.loc).
-		Scan(&lol, &toret.Key, &toret.Value, &toret.LeftHash, &toret.RightHash)
-	return toret, err
+	return rcGet(string(cr.loc), func() (fullNode, error) {
+		var toret fullNode
+		var lol []byte
+		err := cr.tx.QueryRow("SELECT * FROM treenodes WHERE hash = $1", cr.loc).
+			Scan(&lol, &toret.Key, &toret.Value, &toret.LeftHash, &toret.RightHash)
+		return toret, err
+	})
 }
 
 func (cr cursor) getLeft() (cursor, error) {

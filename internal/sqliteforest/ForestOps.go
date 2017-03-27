@@ -2,7 +2,7 @@ package sqliteforest
 
 import (
 	"bytes"
-	"crypto/subtle"
+	"database/sql"
 	"errors"
 	"fmt"
 	"regexp"
@@ -40,6 +40,15 @@ func (rec fullNode) Hash() []byte {
 // Proof is a proof of inclusion or exclusion, represented as an array of abbreviated nodes.
 type Proof []AbbrNode
 
+// ToBytes serializes a proof into a slice of byte slices.
+func (pr Proof) ToBytes() [][]byte {
+	// TODO don't use recursion
+	if len(pr) == 0 {
+		return nil
+	}
+	return append([][]byte{pr[0].ToBytes()}, pr[1:].ToBytes()...)
+}
+
 // Check checks the proof for correctness
 func (pr Proof) Check(rootHash []byte, key string, valhash []byte) bool {
 	// General idea of the algorithm:
@@ -52,15 +61,15 @@ func (pr Proof) Check(rootHash []byte, key string, valhash []byte) bool {
 	// If we want a nonexistence proof, check that the last node in the proof has no children and does not have K
 	// If we want an existence proof, check that the last node has the K/V
 
-	comp := subtle.ConstantTimeCompare
+	comp := bytes.Compare
 	H := libkataware.DoubleSHA256
 	if len(pr) < 1 {
 		return false // WTF
 	}
 	if len(pr) == 1 {
-		return comp(H(pr[0].ToBytes()), rootHash) == 1 &&
+		return comp(H(pr[0].ToBytes()), rootHash) == 0 &&
 			pr[0].Key == key &&
-			comp(pr[0].VHash, valhash) == 1
+			comp(pr[0].VHash, valhash) == 0
 	}
 	// general case
 	seenKeys := make(map[string]bool)
@@ -76,12 +85,12 @@ func (pr Proof) Check(rootHash []byte, key string, valhash []byte) bool {
 		// check y is the correct child of x
 		switch strings.Compare(key, x.Key) {
 		case -1:
-			if comp(x.LHash, H(y.ToBytes())) != 1 ||
+			if comp(x.LHash, H(y.ToBytes())) != 0 ||
 				strings.Compare(y.Key, x.Key) != -1 {
 				return false
 			}
 		case 1:
-			if comp(x.RHash, H(y.ToBytes())) != 1 ||
+			if comp(x.RHash, H(y.ToBytes())) != 0 ||
 				strings.Compare(y.Key, x.Key) != 1 {
 				return false
 			}
@@ -94,10 +103,10 @@ func (pr Proof) Check(rootHash []byte, key string, valhash []byte) bool {
 	last := pr[len(pr)-1]
 	if valhash == nil {
 		return last.Key != key &&
-			comp(last.LHash, make([]byte, 32)) == 1 &&
-			comp(last.LHash, make([]byte, 32)) == 1
+			comp(last.LHash, make([]byte, 32)) == 0 &&
+			comp(last.LHash, make([]byte, 32)) == 0
 	}
-	return last.Key == key && comp(last.VHash, valhash) == 1
+	return last.Key == key && comp(last.VHash, valhash) == 0
 }
 
 // AbbrNode is a struct representing an abbreviated node used in a proof.
@@ -158,14 +167,8 @@ func (fst *Forest) SearchStaging(key string) (value []operlog.Operation, err err
 	return
 }
 
-// FindProof returns a proof of (non)existence given a tree-root hash and a key.
-func (fst *Forest) FindProof(trhash []byte, key string) (proof Proof, value []operlog.Operation,
-	err error) {
-	tx, err := fst.sdb.Begin()
-	if err != nil {
-		return
-	}
-	defer tx.Commit()
+func (fst *Forest) findOneProof(tx *sql.Tx, trhash []byte, key string) (proof Proof,
+	value []operlog.Operation, err error) {
 	rcurs := cursor{tx, trhash}
 	ptrs, err := searchTree(rcurs, key)
 	if err != nil {
@@ -189,15 +192,63 @@ func (fst *Forest) FindProof(trhash []byte, key string) (proof Proof, value []op
 			LHash: rec.LeftHash,
 			RHash: rec.RightHash,
 		})
-		srops := bytes.NewReader(rec.Value)
-		for srops.Len() != 0 {
-			var op operlog.Operation
-			err := op.Unpack(srops)
-			if err != nil {
-				panic("CORRUPT DB: failed while unpacking an operation!")
+		if rec.Key == key {
+			srops := bytes.NewReader(rec.Value)
+			for srops.Len() != 0 {
+				var op operlog.Operation
+				err := op.Unpack(srops)
+				if err != nil {
+					panic("CORRUPT DB: failed while unpacking an operation!")
+				}
+				value = append(value, op)
 			}
-			value = append(value, op)
 		}
+	}
+	return
+}
+
+// FindProof returns a proof of (non)existence given a tree-root hash and a key.
+func (fst *Forest) FindProof(trhash []byte, key string) (proof Proof, value []operlog.Operation,
+	err error) {
+	tx, err := fst.sdb.Begin()
+	if err != nil {
+		return
+	}
+	defer tx.Commit()
+	return fst.findOneProof(tx, trhash, key)
+}
+
+// FindAllProof finds a proof of (non)existence for all the tree roots.
+func (fst *Forest) FindAllProof(key string) (roots [][]byte,
+	proofs []Proof,
+	values [][]operlog.Operation,
+	err error) {
+	tx, err := fst.sdb.Begin()
+	if err != nil {
+		return
+	}
+	defer tx.Commit()
+	rows, err := tx.Query("SELECT rhash FROM treeroots")
+	if err != nil {
+		return
+	}
+	for rows.Next() {
+		var nv []byte
+		err = rows.Scan(&nv)
+		if err != nil {
+			return
+		}
+		roots = append(roots, nv)
+	}
+	// go through the roots
+	for _, rt := range roots {
+		prf, val, e := fst.findOneProof(tx, rt, key)
+		err = e
+		if err != nil {
+			return
+		}
+		proofs = append(proofs, prf)
+		values = append(values, val)
 	}
 	return
 }
@@ -224,8 +275,8 @@ func (fst *Forest) TreeRoots() (roots [][]byte, err error) {
 	return
 }
 
-// StageDiff atomically stages a key and operation into the staging area.
-func (fst *Forest) StageDiff(key string, op operlog.Operation) (err error) {
+// Stage atomically stages a key and operation into the staging area.
+func (fst *Forest) Stage(key string, op operlog.Operation) (err error) {
 	tx, err := fst.sdb.Begin()
 	if err != nil {
 		return
@@ -281,11 +332,13 @@ func (fst *Forest) Commit() (err error) {
 	if err != nil {
 		return
 	}
-	// Write the root to treeroots
-	_, err = tx.Exec("INSERT INTO treeroots VALUES ((SELECT COUNT(*) FROM treeroots), $2, $3)",
-		time.Now().Unix(), nroot.loc)
-	if err != nil {
-		return
+	if nroot.loc != nil {
+		// Write the root to treeroots
+		_, err = tx.Exec("INSERT INTO treeroots VALUES ((SELECT COUNT(*) FROM treeroots), $2, $3)",
+			time.Now().Unix(), nroot.loc)
+		if err != nil {
+			return
+		}
 	}
 	// Clear the staging area
 	_, err = tx.Exec("DELETE FROM uncommitted")

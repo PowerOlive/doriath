@@ -50,6 +50,15 @@ func (hdr *Header) Deserialize(ob []byte) {
 
 // CheckMerkle checks that a certain transaction exists in the block identified by the header, given a Merkle tree branch.
 func (hdr *Header) CheckMerkle(merkle [][]byte, pos int, tx Transaction) bool {
+	h := hdr.FixedMerkleRoot(merkle, pos, tx)
+	if subtle.ConstantTimeCompare(h, hdr.HashMerkleRoot) == 1 {
+		return true
+	}
+	return false
+}
+
+// FixedMerkleRoot is a helper function that returns what HashMerkleRoot should be.
+func (hdr *Header) FixedMerkleRoot(merkle [][]byte, pos int, tx Transaction) []byte {
 	h := tx.Hash256()
 	for i, elem := range merkle {
 		if (uint(pos)>>uint(i))&1 != 0 {
@@ -58,8 +67,5 @@ func (hdr *Header) CheckMerkle(merkle [][]byte, pos int, tx Transaction) bool {
 			h = DoubleSHA256(append(h, elem...))
 		}
 	}
-	if subtle.ConstantTimeCompare(h, hdr.HashMerkleRoot) == 1 {
-		return true
-	}
-	return false
+	return h
 }

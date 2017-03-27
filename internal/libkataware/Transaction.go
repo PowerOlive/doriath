@@ -22,6 +22,18 @@ func (tx *Transaction) Hash256() []byte {
 	return DoubleSHA256(buf.Bytes())
 }
 
+// ToBytes is a convenience function.
+func (tx *Transaction) ToBytes() []byte {
+	buf := new(bytes.Buffer)
+	tx.Pack(buf)
+	return buf.Bytes()
+}
+
+// FromBytes is a convenience function.
+func (tx *Transaction) FromBytes(b []byte) error {
+	return tx.Unpack(bytes.NewReader(b))
+}
+
 // Pack serializes a transaction.
 func (tx *Transaction) Pack(out io.Writer) error {
 	buf := new(bytes.Buffer)

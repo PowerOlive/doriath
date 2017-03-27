@@ -25,7 +25,7 @@ func TestWeirdProofs(t *testing.T) {
 		for j := 0; j < 10; j++ {
 			key := fmt.Sprintf("key%v,%v", i, j)
 			value := demoOp(fmt.Sprintf("val%v,%v", i, j))
-			err = frst.StageDiff(key, value)
+			err = frst.Stage(key, value)
 			if err != nil {
 				t.Error(err)
 				return
@@ -82,7 +82,7 @@ func TestMultipleOps(t *testing.T) {
 	operations := make([]operlog.Operation, 10)
 	for i := 0; i < 10; i++ {
 		operations[i] = demoOp(fmt.Sprintf("Data number %v", i))
-		frst.StageDiff("FOOBAR", operations[i])
+		frst.Stage("FOOBAR", operations[i])
 	}
 	res, err := frst.SearchStaging("FOOBAR")
 	if err != nil {
@@ -116,7 +116,7 @@ func BenchmarkStaging(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		key := fmt.Sprintf("key%v", i)
 		value := demoOp("helloworld")
-		err := frst.StageDiff(key, value)
+		err := frst.Stage(key, value)
 		if err != nil {
 			b.Error(err)
 			return

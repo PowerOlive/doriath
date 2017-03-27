@@ -3,6 +3,7 @@ package libkataware
 import (
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"testing"
 )
 
@@ -21,6 +22,7 @@ func TestGenMerkle(t *testing.T) {
 	blk.Deserialize(block170000)
 	for _, tx := range blk.Bdy {
 		claimedProof, pos := blk.GenMerkle(tx.Hash256())
+		fmt.Printf("%x\n", claimedProof[len(claimedProof)-1][:10])
 		if !blk.Hdr.CheckMerkle(claimedProof, pos, tx) {
 			t.FailNow()
 		}
