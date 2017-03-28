@@ -197,5 +197,6 @@ func (srv *Server) handOplog(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 	w.Header().Add("content-type", "application/json")
+	w.Header().Add("cache-control", "max-age=10")
 	w.Write(encoded)
 }
