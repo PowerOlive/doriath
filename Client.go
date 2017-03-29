@@ -157,6 +157,13 @@ func (clnt *Client) GetOpLog(name string) (operlog.OperLog, int, error) {
 		toret = append(toret, op)
 	}
 
+	for i := lenOpEntries; i < len(opEntries); i++ {
+		oe := opEntries[i]
+		op := operlog.Operation{}
+		op.FromBytes(oe.RawOps)
+		toret = append(toret, op)
+	}
+
 	return toret, cnt, nil
 }
 
