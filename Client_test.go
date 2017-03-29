@@ -16,5 +16,6 @@ func TestSyncSimple(t *testing.T) {
 
 	client := &Client{GenTx: nil, NaURL: u, CacheDir: "/Users/w3kim/tmp/bitforest"}
 	client.Sync()
+	log.Println("sync done")
 	client.GetOpLog("name-1")
 }

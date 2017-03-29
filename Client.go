@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -56,26 +57,31 @@ var ErrInvOpEntries = errors.New("invalid operation entries")
 // Sync downloads transaction chains and blockchain headers.
 func (clnt *Client) Sync() error {
 	os.MkdirAll(clnt.CacheDir, 0777)
+	log.Println("sync starting")
 	// store txChain and headers
 	err := clnt.downloadBlockchainHeaders()
 	if err != nil {
 		return err
 	}
-
+	log.Println("downloaded blockchain headers")
 	err = clnt.downloadTxChain()
 	if err != nil {
 		return err
 	}
+	log.Println("downloaded txchain")
 
+	// TODO check integrity one by one (e.g. 80 bytes)
 	headers, _ := clnt.getBlockchainHeaders()
-	if !checkBlockchainHeaders(headers) {
+	if !clnt.checkBlockchainHeaders(headers) {
 		return ErrInvBlockchainHeaders
 	}
+	log.Println("checked blockchain headers")
 
 	txChain, _ := clnt.getTxChain()
-	if !checkTxChain(txChain, headers) {
+	if !clnt.checkTxChain(txChain, headers) {
 		return ErrInvTxChain
 	}
+	log.Println("checked txchain")
 
 	return nil
 }
@@ -84,47 +90,50 @@ func (clnt *Client) Sync() error {
 // the provided name and the number of confirmed operations in
 // the returning OperLog object.
 func (clnt *Client) GetOpLog(name string) (operlog.OperLog, int, error) {
-	resp, err := getHttpClient().Get(clnt.NaURL.String() + "/oplogs/" + name + ".json")
+	log.Println("starting GetOpLog")
+	resp, err := clnt.getHttpClient().Get(clnt.NaURL.String() + "/oplogs/" + name + ".json")
 	if err != nil {
 		return nil, 0, err
 	}
 	defer resp.Body.Close()
 
-	body, _ := ioutil.ReadAll(resp.Body)
-
-	opEntries := make([]opEntry, 0)
-	err = json.Unmarshal(body, &opEntries)
+	decoder := json.NewDecoder(resp.Body)
+	var opEntries []opEntry
+	err = decoder.Decode(&opEntries)
 	if err != nil {
 		return nil, 0, err
 	}
+	log.Println("done downloading and decoding")
 
 	lenOpEntries := len(opEntries)
 	lastOpEntry := opEntries[lenOpEntries-1]
-	// TODO find a null proof indicating unstaged operations
-	for i := 0; i < len(lastOpEntry.Proof); i++ {
-		if lastOpEntry.Proof[i] == nil {
-			lenOpEntries--
-			break
-		}
+	if lastOpEntry.Proof == nil {
+		lenOpEntries--
 	}
+	jsn, _ := json.MarshalIndent(lastOpEntry, "", "    ")
+	fmt.Println(string(jsn))
 
 	txChain, err := clnt.getTxChain()
 	if err != nil {
 		return nil, 0, err
 	}
+	log.Println("loaded txChain")
 
 	lenTxChain := len(txChain)
-	if txChain[lenTxChain-1].BlockIdx < 0 {
+	if lenTxChain > 0 && txChain[lenTxChain-1].BlockIdx < 0 {
 		lenTxChain--
 	}
 
 	log.Printf("%d op_entries\n", lenOpEntries)
 	log.Printf("%d tx_chain\n", lenTxChain)
+
 	// check whether the cached data is in sync
 	if lenTxChain < lenOpEntries {
 		return nil, 0, ErrOutOfSync
 	}
 
+	log.Println("starting the loop")
+	// TODO break this loop into two diff loops - loop1: confirmed, loop2: unconfirmed
 	toret := operlog.OperLog{}
 	cnt := 0
 	for i := 0; i < lenOpEntries; i++ {
@@ -144,30 +153,29 @@ func (clnt *Client) GetOpLog(name string) (operlog.OperLog, int, error) {
 		}
 
 		btx := libkataware.Transaction{}
-		btx.FromBytes(txChain[0].RawTx)
+		btx.FromBytes(txChain[i].RawTx)
+
+		if txChain[i].BlockIdx >= 0 {
+			// unconfirmed operation entry
+			cnt++
+		}
+
 		rootHash := btx.Outputs[1].Script[3:23]
 
 		if !proof.Check(rootHash, name, valHash) {
 			return nil, 0, ErrInvOpEntries
 		}
 
-		cnt++
 		op := operlog.Operation{}
 		op.FromBytes(oe.RawOps)
 		toret = append(toret, op)
 	}
-
-	for i := lenOpEntries; i < len(opEntries); i++ {
-		oe := opEntries[i]
-		op := operlog.Operation{}
-		op.FromBytes(oe.RawOps)
-		toret = append(toret, op)
-	}
+	log.Println("loop done")
 
 	return toret, cnt, nil
 }
 
-func checkTxChain(txChain []tx, headers []libkataware.Header) bool {
+func (clnt *Client) checkTxChain(txChain []tx, headers []libkataware.Header) bool {
 	// TODO GenTx?
 	// forward checking ==>
 	for i := 0; i < len(txChain); i++ {
@@ -182,8 +190,7 @@ func checkTxChain(txChain []tx, headers []libkataware.Header) bool {
 	return true
 }
 
-func checkBlockchainHeaders(headers []libkataware.Header) bool {
-	// TODO GenTx?
+func (clnt *Client) checkBlockchainHeaders(headers []libkataware.Header) bool {
 	// backward checking <==
 	for i := len(headers) - 1; i > 0; i-- {
 		if subtle.ConstantTimeCompare(headers[i].HashPrevBlock, libkataware.DoubleSHA256(headers[i-1].Serialize())) == 0 {
@@ -193,7 +200,7 @@ func checkBlockchainHeaders(headers []libkataware.Header) bool {
 	return true
 }
 
-func getHttpClient() *http.Client {
+func (clnt *Client) getHttpClient() *http.Client {
 	tr := &http.Transport{
 		DisableKeepAlives: false,
 	}
@@ -202,7 +209,7 @@ func getHttpClient() *http.Client {
 }
 
 func (clnt *Client) downloadBlockchainHeaders() error {
-	resp, err := getHttpClient().Get(clnt.NaURL.String() + "/blockchain_headers")
+	resp, err := clnt.getHttpClient().Get(clnt.NaURL.String() + "/blockchain_headers")
 	if err != nil {
 		return err
 	}
@@ -225,7 +232,7 @@ func (clnt *Client) downloadBlockchainHeaders() error {
 }
 
 func (clnt *Client) downloadTxChain() error {
-	resp, err := getHttpClient().Get(clnt.NaURL.String() + "/txchain.json")
+	resp, err := clnt.getHttpClient().Get(clnt.NaURL.String() + "/txchain.json")
 	if err != nil {
 		return err
 	}
