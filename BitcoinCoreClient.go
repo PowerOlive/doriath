@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -41,7 +40,7 @@ func (bcc *BitcoinCoreClient) callMethod(mname string,
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, errors.New("not OK")
+		return nil, fmt.Errorf("not OK %v", resp.StatusCode)
 	}
 	var jsresp map[string]json.RawMessage
 	err = json.NewDecoder(resp.Body).Decode(&jsresp)
@@ -156,12 +155,22 @@ func (bcc *BitcoinCoreClient) SignTx(tx []byte, skWIF string) (stx []byte, err e
 	if err != nil {
 		return
 	}
+	err = json.Unmarshal(jsresp["result"], &jsresp)
+	if err != nil {
+		return
+	}
 	var hexstr string
-	err = json.Unmarshal(jsresp["result"], &hexstr)
+	err = json.Unmarshal(jsresp["hex"], &hexstr)
 	if err != nil {
 		return
 	}
 	stx, err = hex.DecodeString(hexstr)
+	return
+}
+
+// BroadcastTx broadcasts a transaction.
+func (bcc *BitcoinCoreClient) BroadcastTx(tx []byte) (err error) {
+	_, err = bcc.callMethod("sendrawtransaction", hex.EncodeToString(tx))
 	return
 }
 
@@ -173,10 +182,11 @@ func NewBitcoinCoreClient(addr string, user string, pwd string) *BitcoinCoreClie
 		rpcPwd:  pwd,
 		hclient: &http.Client{
 			Transport: &http.Transport{
-				MaxIdleConns:    2,
-				IdleConnTimeout: time.Second * 10,
+				MaxIdleConns:        50,
+				MaxIdleConnsPerHost: 32,
+				IdleConnTimeout:     time.Second * 120,
 			},
-			Timeout: time.Second * 2,
+			Timeout: time.Second * 200,
 		},
 	}
 }

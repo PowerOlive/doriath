@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sync"
+	"time"
 
 	"github.com/rensa-labs/doriath/internal/libkataware"
 	"github.com/rensa-labs/doriath/internal/sqliteforest"
@@ -22,6 +24,9 @@ type Client struct {
 	GenTx    []byte
 	NaURL    *url.URL
 	CacheDir string
+
+	clnt     *http.Client
+	clntonce sync.Once
 }
 
 type tx struct {
@@ -56,30 +61,29 @@ var ErrInvOpEntries = errors.New("invalid operation entries")
 
 // Sync downloads transaction chains and blockchain headers.
 func (clnt *Client) Sync() error {
-	os.MkdirAll(clnt.CacheDir, 0777)
-	log.Println("sync starting")
-	// store txChain and headers
-	err := clnt.downloadBlockchainHeaders()
-	if err != nil {
-		return err
+	os.MkdirAll(clnt.CacheDir, 0700)
+	waiter := make(chan error)
+	go func() {
+		waiter <- clnt.downloadBlockchainHeaders()
+	}()
+	go func() {
+		waiter <- clnt.downloadTxChain()
+	}()
+	for i := 0; i < 2; i++ {
+		err := <-waiter
+		if err != nil {
+			return err
+		}
 	}
-	log.Println("downloaded blockchain headers")
-	err = clnt.downloadTxChain()
-	if err != nil {
-		return err
-	}
-	log.Println("downloaded txchain")
 
 	if !clnt.checkBlockchainHeaders() {
 		return ErrInvBlockchainHeaders
 	}
-	log.Println("checked blockchain headers")
 
 	txChain, _ := clnt.getTxChain()
 	if !clnt.checkTxChain(txChain) {
 		return ErrInvTxChain
 	}
-	log.Println("checked txchain")
 
 	return nil
 }
@@ -88,9 +92,10 @@ func (clnt *Client) Sync() error {
 // the provided name and the number of confirmed operations in
 // the returning OperLog object.
 func (clnt *Client) GetOpLog(name string) (operlog.OperLog, int, error) {
+	clnt.maybeDownloadTxChain()
 	fd, err := os.Open(clnt.CacheDir + BlockHeaderFileName)
 	if err != nil {
-		panic(err)
+		return nil, 0, ErrOutOfSync
 	}
 	defer fd.Close()
 	resp, err := clnt.getHTTPClient().Get(clnt.NaURL.String() + "/oplogs/" + name + ".json")
@@ -157,6 +162,15 @@ func (clnt *Client) GetOpLog(name string) (operlog.OperLog, int, error) {
 		txce := txChain[i]
 		var tx libkataware.Transaction
 		tx.FromBytes(txce.RawTx)
+		buf := bytes.NewReader(ope.RawOps)
+		for buf.Len() != 0 {
+			var op operlog.Operation
+			err := op.Unpack(buf)
+			if err != nil {
+				return nil, 0, ErrInvOpEntries
+			}
+			toret = append(toret, op)
+		}
 		if txce.BlockIdx >= 0 {
 			var prf sqliteforest.Proof
 			roothash := tx.Outputs[1].Script[3:23]
@@ -170,23 +184,14 @@ func (clnt *Client) GetOpLog(name string) (operlog.OperLog, int, error) {
 				valHash = nil
 			}
 			if ope.Proof != nil && !prf.Check(roothash, name, valHash) {
-				log.Println("proof check failed")
+				log.Printf("proof wrong!! %x %v %x", roothash[:10], name, valHash[:10])
 				return nil, 0, ErrInvOpEntries
-			}
-			buf := bytes.NewReader(ope.RawOps)
-			for buf.Len() != 0 {
-				var op operlog.Operation
-				err := op.Unpack(buf)
-				if err != nil {
-					log.Println("unpack failed")
-					return nil, 0, ErrInvOpEntries
-				}
-				toret = append(toret, op)
 			}
 		}
 	}
 
 	if !toret.IsValid() {
+		log.Println("ops invalid!!")
 		return nil, 0, ErrInvOpEntries
 	}
 
@@ -228,7 +233,7 @@ func (clnt *Client) checkTxChain(txChain []tx) bool {
 		}
 		// check blockchain inclusion for confirmed chains only
 		if txi.BlockIdx >= 0 {
-			hdx := clnt.idx2hdr(fd, i)
+			hdx := clnt.idx2hdr(fd, txi.BlockIdx)
 			if !hdx.CheckMerkle(txi.Merkle, txi.BlockIdx, btx) {
 				return false
 			}
@@ -261,11 +266,15 @@ func (clnt *Client) checkBlockchainHeaders() bool {
 }
 
 func (clnt *Client) getHTTPClient() *http.Client {
-	tr := &http.Transport{
-		DisableKeepAlives: false,
-	}
-	client := &http.Client{Transport: tr}
-	return client
+	clnt.clntonce.Do(func() {
+		clnt.clnt = &http.Client{
+			Transport: &http.Transport{
+				IdleConnTimeout: time.Minute,
+			},
+			Timeout: time.Minute * 5,
+		}
+	})
+	return clnt.clnt
 }
 
 func (clnt *Client) downloadBlockchainHeaders() error {
@@ -288,6 +297,19 @@ func (clnt *Client) downloadBlockchainHeaders() error {
 	}
 	f.Sync()
 
+	return nil
+}
+
+func (clnt *Client) maybeDownloadTxChain() error {
+	lol, err := clnt.getTxChain()
+	if err != nil {
+		return clnt.downloadTxChain()
+	}
+	for _, tx := range lol {
+		if tx.BlockIdx < 0 {
+			return clnt.downloadTxChain()
+		}
+	}
 	return nil
 }
 

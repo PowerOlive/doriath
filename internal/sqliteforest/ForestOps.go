@@ -67,7 +67,7 @@ func (pr Proof) Check(rootHash []byte, key string, valhash []byte) bool {
 		return false // WTF
 	}
 	if len(pr) == 1 {
-		return comp(H(pr[0].ToBytes()), rootHash) == 0 &&
+		return comp(H(pr[0].ToBytes())[:len(rootHash)], rootHash) == 0 &&
 			pr[0].Key == key &&
 			comp(pr[0].VHash, valhash) == 0
 	}
@@ -106,7 +106,8 @@ func (pr Proof) Check(rootHash []byte, key string, valhash []byte) bool {
 			comp(last.LHash, make([]byte, 32)) == 0 &&
 			comp(last.LHash, make([]byte, 32)) == 0
 	}
-	return last.Key == key && comp(last.VHash, valhash) == 0
+	return last.Key == key && comp(last.VHash, valhash) == 0 &&
+		comp(rootHash, H(pr[0].ToBytes())[:len(rootHash)]) == 0
 }
 
 // AbbrNode is a struct representing an abbreviated node used in a proof.

@@ -109,7 +109,7 @@ func (ids IDScript) Verify(data []byte, sigs [][]byte) (err error) {
 			// Quorum node
 			need := next()
 			max := next()
-			if need <= 0 || max <= 0 || need > max {
+			if need < 0 || max < 0 || need > max {
 				err = ErrInvalidID
 				return
 			}

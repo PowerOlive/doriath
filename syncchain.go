@@ -93,6 +93,7 @@ func (srv *Server) syncChain() error {
 		}
 		signed, err := srv.btcClient.SignTx(tnp1.ToBytes(), srv.btcPrivKey)
 		if err != nil {
+			log.Printf("server: failed to sign %x", tnp1.ToBytes())
 			return err
 		}
 		if tn.FromBytes(signed) != nil {

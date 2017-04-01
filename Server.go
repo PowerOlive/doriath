@@ -2,9 +2,11 @@ package doriath
 
 import (
 	"bytes"
+	crand "crypto/rand"
 	"database/sql"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"gopkg.in/tomb.v2"
@@ -23,9 +25,90 @@ type Server struct {
 	forest     *sqliteforest.Forest
 	dbHandle   *sql.DB
 
+	hdrcache [][]byte
+	hclock   sync.RWMutex
+
 	smux *http.ServeMux
 
 	death tomb.Tomb
+}
+
+// force sync for the Server
+func (srv *Server) syncHeaders() error {
+	srv.hclock.Lock()
+	defer srv.hclock.Unlock()
+	if len(srv.hdrcache) > 100 {
+		srv.hdrcache = srv.hdrcache[:len(srv.hdrcache)-101]
+	}
+	// sync from blockchain
+	curblcount, err := srv.btcClient.GetBlockCount()
+	if err != nil {
+		return err
+	}
+	curlen := len(srv.hdrcache)
+	workcount := 15
+	workchan := make(chan int)
+	tmb := new(tomb.Tomb)
+	for i := 0; i < workcount; i++ {
+		tmb.Go(func() error {
+			for {
+				var todo int
+				var ok bool
+				select {
+				case <-tmb.Dying():
+					return tmb.Err()
+				case todo, ok = <-workchan:
+					if !ok {
+						return nil
+					}
+				}
+				hsh, e := srv.btcClient.GetBlockHash(todo)
+				if e != nil {
+					log.Println("server: unexpected error in GetBlockHash:", e.Error())
+					return e
+				}
+				hdr, e := srv.btcClient.GetHeader(hsh)
+				if err != nil {
+					log.Println("server: unexpected error in GetHeader:", e.Error())
+					return e
+				}
+				srv.hdrcache[todo] = hdr
+			}
+		})
+	}
+	srv.hdrcache = append(srv.hdrcache, make([][]byte, curblcount-curlen)...)
+	for i := curlen; i < curblcount; i++ {
+		if i%10000 == 0 {
+			log.Println("syncing headers", int(100.0*float64(i)/float64(curblcount)), "%")
+		}
+		select {
+		case workchan <- i:
+		case <-tmb.Dying():
+			goto OUT
+		}
+	}
+	close(workchan)
+OUT:
+	err = tmb.Wait()
+	if err != nil {
+		srv.hdrcache = srv.hdrcache[:curlen]
+		return err
+	}
+	return nil
+}
+
+func (srv *Server) dummyOp() operlog.Operation {
+	idsc, err := operlog.AssembleID(".quorum 0. 0.")
+	if err != nil {
+		panic(err.Error())
+	}
+	newop := operlog.Operation{
+		Nonce:  make([]byte, 32),
+		NextID: idsc,
+		Data:   []byte(time.Now().String()),
+	}
+	crand.Read(newop.Nonce)
+	return newop
 }
 
 // background routine for the Server
@@ -39,7 +122,12 @@ func (srv *Server) bkgRoutine() error {
 		case <-nxtCommit:
 			log.Println("server: committing staging area", cnt)
 			for {
-				err := srv.forest.Commit()
+				err := srv.forest.Stage("_natime", srv.dummyOp())
+				if err != nil {
+					log.Println("server: adding natime", cnt, "FAILED:", err.Error())
+					continue
+				}
+				err = srv.forest.Commit()
 				if err != nil {
 					log.Println("server: committing staging area", cnt,
 						"FAILED:", err.Error())
@@ -104,6 +192,22 @@ func NewServer(btcClient BitcoinClient,
 	if err != nil {
 		return
 	}
+	srv.death.Go(func() error {
+		for {
+			log.Println("server: syncing headers...")
+			err := srv.syncHeaders()
+			if err != nil {
+				log.Println("server: syncing headers failed! trying next time")
+			} else {
+				log.Println("server: syncing headers done")
+			}
+			select {
+			case <-srv.death.Dying():
+				return srv.death.Err()
+			case <-time.After(time.Minute):
+			}
+		}
+	})
 	srv.death.Go(srv.bkgRoutine)
 	srv.smux.HandleFunc("/blockchain_headers", srv.handBlockchainHeaders)
 	srv.smux.HandleFunc("/txchain.json", srv.handTxchain)

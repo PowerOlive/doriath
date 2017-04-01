@@ -51,7 +51,7 @@ func main() {
 	}
 	srv, err := doriath.NewServer(mbc,
 		"foobar", bogus,
-		time.Minute,
+		time.Second*10,
 		fmt.Sprintf("/tmp/doriath-mock-%v.db", time.Now().Unix()))
 	if err != nil {
 		panic(err.Error())

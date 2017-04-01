@@ -15,34 +15,18 @@ import (
 
 func (srv *Server) handBlockchainHeaders(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
+	srv.hclock.RLock()
+	defer srv.hclock.RUnlock()
 	w.Header().Add("cache-control", "max-age=60")
-	blkcnt, err := srv.btcClient.GetBlockCount()
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	w.Header().Add("content-length", fmt.Sprintf("%v", blkcnt*80))
-	for i := 0; i < blkcnt; i++ {
-		hsh, err := srv.btcClient.GetBlockHash(i)
-		if err != nil {
-			log.Println("server: unexpected error while processing headers in GetBlockHash:", err.Error())
-			return
-		}
-		hdr, err := srv.btcClient.GetHeader(hsh)
-		if err != nil {
-			log.Println("server: unexpected error while proccessing headers in GetHeader:", err.Error())
-			return
-		}
-		_, err = w.Write(hdr)
-		if err != nil {
-			return
-		}
+	w.Header().Add("content-length", fmt.Sprintf("%v", len(srv.hdrcache)*80))
+	for _, b := range srv.hdrcache {
+		w.Write(b)
 	}
 }
 
 func (srv *Server) handTxchain(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
-	w.Header().Add("cache-control", fmt.Sprintf("max-age=%v", srv.interval.Seconds()))
+	w.Header().Add("cache-control", fmt.Sprintf("max-age=60"))
 	var towrite []struct {
 		RawTx    []byte
 		BlockIdx int
