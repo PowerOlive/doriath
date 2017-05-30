@@ -28,11 +28,11 @@ func garbageLoop(srv *doriath.Server) {
 		}
 		name := fmt.Sprintf("name-%v", i)
 		newop := operlog.Operation{
-			Nonce:  make([]byte, 32),
-			NextID: idscBin,
-			Data:   []byte(fmt.Sprintf("garbage-data-%v", name)),
+			PrevHash: make([]byte, 32),
+			NextID:   idscBin,
+			Data:     []byte(fmt.Sprintf("garbage-data-%v", name)),
 		}
-		crand.Read(newop.Nonce)
+		crand.Read(newop.PrevHash)
 		signature := ed25519.Sign(sk, newop.SignedPart())
 		newop.Signatures = [][]byte{signature}
 		srv.StageOperation(name, newop)

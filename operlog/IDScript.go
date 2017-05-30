@@ -99,7 +99,6 @@ func (ids IDScript) Verify(data []byte, sigs [][]byte) (err error) {
 		}
 		return int(bt)
 	}
-	keyIdx := 0
 	// loop through the IDScript and interpret it
 	for {
 		switch b1 := next(); b1 {
@@ -138,14 +137,15 @@ func (ids IDScript) Verify(data []byte, sigs [][]byte) (err error) {
 					err = ErrInvalidID
 					return
 				}
-				signat := sigs[keyIdx]
-				keyIdx++
-				// verify signature against key and data
-				if !ed25519.Verify(pubKey, data, signat) {
-					push(0)
-				} else {
-					push(1)
+				topush := 0
+				for _, signat := range sigs {
+					// verify signature against key and data
+					if ed25519.Verify(pubKey, data, signat) {
+						topush = 1
+						break
+					}
 				}
+				push(topush)
 			default:
 				return ErrInvalidID
 			}

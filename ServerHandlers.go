@@ -130,40 +130,6 @@ func (srv *Server) handOplog(w http.ResponseWriter, r *http.Request) {
 		towrite = append(towrite, current)
 	}
 	log.Println("one search took", time.Now().Sub(startTime))
-	/*
-		roots, err := srv.forest.TreeRoots()
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		log.Println("getting tree roots took", time.Now().Sub(startTime))
-		var towrite []struct {
-			RawOps []byte
-			Proof  [][]byte
-		}
-		for _, root := range roots {
-			var current struct {
-				RawOps []byte
-				Proof  [][]byte
-			}
-			fpStartTime := time.Now()
-			proof, ops, e := srv.forest.FindProof(root, name)
-			if e != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-			log.Println("find proof took", time.Now().Sub(fpStartTime))
-			current.Proof = proof.ToBytes()
-			if ops != nil {
-				buf := new(bytes.Buffer)
-				for _, v := range ops {
-					v.Pack(buf)
-				}
-				current.RawOps = buf.Bytes()
-			}
-			towrite = append(towrite, current)
-		}
-	*/
 	// add staging info if possible
 	stagOps, err := srv.forest.SearchStaging(name)
 	if err == nil {

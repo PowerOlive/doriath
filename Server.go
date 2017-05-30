@@ -103,7 +103,7 @@ func (srv *Server) dummyOp() operlog.Operation {
 		panic(err.Error())
 	}
 	newop := operlog.Operation{
-		Nonce:  make([]byte, 32),
+		Nonce:  make([]byte, 16),
 		NextID: idsc,
 		Data:   []byte(time.Now().String()),
 	}

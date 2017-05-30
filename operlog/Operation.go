@@ -21,7 +21,7 @@ type Operation struct {
 func (op *Operation) fixNonce() {
 	if len(op.Nonce) != 16 {
 		nnc := make([]byte, 16)
-		copy(op.Nonce, nnc)
+		copy(nnc, op.Nonce)
 		op.Nonce = nnc
 	}
 }
