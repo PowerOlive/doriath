@@ -14,7 +14,7 @@ func TestSyncSimple(t *testing.T) {
 	}
 	client := &Client{GenTx: nil, NaURL: u, CacheDir: "/tmp/bitforest/"}
 resync:
-	ol, sec, err := client.GetOpLog("_natime")
+	ol, sec, err := client.GetOpLog("galadriel")
 	if err == ErrOutOfSync {
 		log.Println("need to resync!")
 		client.Sync()

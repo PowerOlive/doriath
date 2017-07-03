@@ -49,7 +49,8 @@ func main() {
 	}
 	log.Println("successfully connected to the Bitcoin network:", res, "blocks")
 	glstate.srv, err = doriath.NewServer(btcclient,
-		*btcpriv, itxbts, time.Second*time.Duration(*txinterval), *dbloc)
+		*btcpriv, time.Second*time.Duration(*txinterval), *dbloc)
+	glstate.srv.AddFunds(itxbts)
 	if err != nil {
 		glstate.logger.Println("failed to construct new server:", err.Error())
 		return

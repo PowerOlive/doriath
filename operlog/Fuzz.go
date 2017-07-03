@@ -16,9 +16,9 @@ func Fuzz(data []byte) int {
 		return 0
 	}
 	jsn, _ := json.MarshalIndent(op, "", "    ")
-	log.Print(string(jsn))
 	out := op.ToBytes()
 	if bytes.Compare(out, data) != 0 {
+		log.Print(string(jsn))
 		log.Printf("%x", out)
 		log.Printf("%x", data)
 		panic("does not work!")

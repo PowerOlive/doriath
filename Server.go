@@ -1,7 +1,6 @@
 package doriath
 
 import (
-	"bytes"
 	crand "crypto/rand"
 	"database/sql"
 	"log"
@@ -11,7 +10,6 @@ import (
 
 	"gopkg.in/tomb.v2"
 
-	"github.com/rensa-labs/doriath/internal/libkataware"
 	"github.com/rensa-labs/doriath/internal/sqliteforest"
 	"github.com/rensa-labs/doriath/operlog"
 )
@@ -20,7 +18,6 @@ import (
 type Server struct {
 	btcClient  BitcoinClient
 	btcPrivKey string // WIF
-	funding    libkataware.Transaction
 	interval   time.Duration
 	forest     *sqliteforest.Forest
 	dbHandle   *sql.DB
@@ -62,12 +59,7 @@ func (srv *Server) syncHeaders() error {
 						return nil
 					}
 				}
-				hsh, e := srv.btcClient.GetBlockHash(todo)
-				if e != nil {
-					log.Println("server: unexpected error in GetBlockHash:", e.Error())
-					return e
-				}
-				hdr, e := srv.btcClient.GetHeader(hsh)
+				hdr, e := srv.btcClient.GetHeader(todo)
 				if err != nil {
 					log.Println("server: unexpected error in GetHeader:", e.Error())
 					return e
@@ -105,7 +97,7 @@ func (srv *Server) dummyOp() operlog.Operation {
 	newop := operlog.Operation{
 		Nonce:  make([]byte, 16),
 		NextID: idsc,
-		Data:   []byte(time.Now().String()),
+		Data:   time.Now().String(),
 	}
 	crand.Read(newop.Nonce)
 	return newop
@@ -114,7 +106,11 @@ func (srv *Server) dummyOp() operlog.Operation {
 // background routine for the Server
 func (srv *Server) bkgRoutine() error {
 	for cnt := 0; ; cnt++ {
-		nxtCommit := time.After(srv.interval)
+		nextUnrounded := time.Now().Add(srv.interval).UnixNano()
+		nextRounded := (nextUnrounded / srv.interval.Nanoseconds()) * srv.interval.Nanoseconds()
+		realnext := time.Unix(0, nextRounded)
+		log.Println("server: NEXT PUBLISH IS", realnext)
+		nxtCommit := time.After(realnext.Sub(time.Now()))
 		select {
 		case <-srv.death.Dying():
 			log.Println("server: dying due to tomb:", srv.death.Err())
@@ -153,17 +149,26 @@ func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	srv.smux.ServeHTTP(w, r)
 }
 
+// GetOperations obtains all the operations for a name, both staging and confirmed.
+func (srv *Server) GetOperations(name string) (ops operlog.OperLog, err error) {
+	return srv.forest.FindOperations(name)
+}
+
 // StageOperation stages an operation for a name.
-// TODO: no sanity checking currently done!!!
 func (srv *Server) StageOperation(name string, operation operlog.Operation) error {
 	err := srv.forest.Stage(name, operation)
 	return err
 }
 
-// NewServer creates a new Bitforest server with the given parameters.
+// AddFunds adds funds from the first output of the given transaction. TODO does not do ANY sanity checking!
+func (srv *Server) AddFunds(tx []byte) error {
+	_, err := srv.dbHandle.Exec("INSERT INTO funds VALUES ($1, 0)", tx)
+	return err
+}
+
+// NewServer creates a new Bitforest server with the given parameters. Set btcClient to null to use simply as an interface to the database.
 func NewServer(btcClient BitcoinClient,
 	btcPrivKey string,
-	fundingTx []byte,
 	interval time.Duration,
 	dbPath string) (srv *Server, err error) {
 	srv = &Server{
@@ -171,11 +176,6 @@ func NewServer(btcClient BitcoinClient,
 		btcPrivKey: btcPrivKey,
 		interval:   interval,
 		smux:       http.NewServeMux(),
-	}
-	err = srv.funding.Unpack(bytes.NewReader(fundingTx))
-	if err != nil {
-		log.Println("could not unpack funding tx")
-		return
 	}
 	srv.dbHandle, err = sql.Open("sqlite3_with_fk", dbPath)
 	if err != nil {
@@ -188,29 +188,38 @@ func NewServer(btcClient BitcoinClient,
 	// initialize db
 	_, err = srv.dbHandle.Exec(`CREATE TABLE IF NOT EXISTS txhistory (
 						rhash BLOB NOT NULL, --- not FK since possibly not unique
-						rawtx BLOB NOT NULL)`)
+						rawtx BLOB NOT NULL,
+						blkidx INTEGER,
+						posinblk INTEGER,
+						merkle BLOB)`)
 	if err != nil {
 		return
 	}
-	srv.death.Go(func() error {
-		for {
-			log.Println("server: syncing headers...")
-			err := srv.syncHeaders()
-			if err != nil {
-				log.Println("server: syncing headers failed! trying next time")
-			} else {
-				log.Println("server: syncing headers done")
+	_, err = srv.dbHandle.Exec(`CREATE TABLE IF NOT EXISTS funds (
+		rawtx BLOB PRIMARY KEY,
+		spent INTEGER)`)
+	if err != nil {
+		return
+	}
+	if btcClient != nil {
+		srv.death.Go(func() error {
+			for {
+				//log.Println("server: syncing headers...")
+				err := srv.syncHeaders()
+				if err != nil {
+					log.Println("server: syncing headers failed! trying next time")
+				}
+				select {
+				case <-srv.death.Dying():
+					return srv.death.Err()
+				case <-time.After(time.Minute):
+				}
 			}
-			select {
-			case <-srv.death.Dying():
-				return srv.death.Err()
-			case <-time.After(time.Minute):
-			}
-		}
-	})
-	srv.death.Go(srv.bkgRoutine)
-	srv.smux.HandleFunc("/blockchain_headers", srv.handBlockchainHeaders)
-	srv.smux.HandleFunc("/txchain.json", srv.handTxchain)
-	srv.smux.HandleFunc("/oplogs/", srv.handOplog)
+		})
+		srv.death.Go(srv.bkgRoutine)
+		srv.smux.HandleFunc("/blockchain_headers", srv.handBlockchainHeaders)
+		srv.smux.HandleFunc("/txchain.json", srv.handTxchain)
+		srv.smux.HandleFunc("/oplogs/", srv.handOplog)
+	}
 	return
 }

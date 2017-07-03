@@ -98,7 +98,11 @@ func (bcc *BitcoinCoreClient) GetBlockIdx(hsh []byte) (idx int, err error) {
 }
 
 // GetBlock takes in a 32-byte block hash in standard order, and returns the entire block as a byte array.
-func (bcc *BitcoinCoreClient) GetBlock(hsh []byte) (blk []byte, err error) {
+func (bcc *BitcoinCoreClient) GetBlock(idx int) (blk []byte, err error) {
+	hsh, err := bcc.GetBlockHash(idx)
+	if err != nil {
+		return
+	}
 	jsresp, err := bcc.callMethod("getblock", hex.EncodeToString(libkataware.SwapBytes(hsh)), false)
 	if err != nil {
 		return
@@ -112,8 +116,12 @@ func (bcc *BitcoinCoreClient) GetBlock(hsh []byte) (blk []byte, err error) {
 	return
 }
 
-// GetHeader takes in a 32-byte block hash and returns the 80-byte block header.
-func (bcc *BitcoinCoreClient) GetHeader(hsh []byte) (hdr []byte, err error) {
+// GetHeader takes in a block index and returns the 80-byte block header.
+func (bcc *BitcoinCoreClient) GetHeader(idx int) (hdr []byte, err error) {
+	hsh, err := bcc.GetBlockHash(idx)
+	if err != nil {
+		return
+	}
 	jsresp, err := bcc.callMethod("getblockheader", hex.EncodeToString(libkataware.SwapBytes(hsh)), false)
 	if err != nil {
 		return
@@ -128,7 +136,7 @@ func (bcc *BitcoinCoreClient) GetHeader(hsh []byte) (hdr []byte, err error) {
 }
 
 // LocateTx returns the hash of the block containing the given transaction hash.
-func (bcc *BitcoinCoreClient) LocateTx(txhsh []byte) (hdhsh []byte, err error) {
+func (bcc *BitcoinCoreClient) LocateTx(txhsh []byte) (idx int, err error) {
 	jsresp, err := bcc.callMethod("getrawtransaction",
 		hex.EncodeToString(libkataware.SwapBytes(txhsh)), true)
 	if err != nil {
@@ -143,8 +151,12 @@ func (bcc *BitcoinCoreClient) LocateTx(txhsh []byte) (hdhsh []byte, err error) {
 	if err != nil {
 		return
 	}
-	hdhsh, err = hex.DecodeString(hexstr)
+	hdhsh, err := hex.DecodeString(hexstr)
+	if err != nil {
+		return
+	}
 	hdhsh = libkataware.SwapBytes(hdhsh)
+	idx, err = bcc.GetBlockIdx(hdhsh)
 	return
 }
 

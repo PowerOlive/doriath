@@ -15,7 +15,7 @@ func TestToBytes(t *testing.T) {
 
 	s1, _ := hex.DecodeString("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
 	var sigs = [][]byte{s1}
-	op := Operation{NextID: id, Data: []byte{1, 2, 3, 4, 5, 6}, Signatures: sigs}
+	op := Operation{NextID: id, Data: string([]byte{1, 2, 3, 4, 5, 6}), Signatures: sigs}
 
 	op.Pack(ioutil.Discard)
 }
@@ -29,7 +29,7 @@ func TestFromBytes(t *testing.T) {
 
 	s1, _ := hex.DecodeString("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
 	var sigs = [][]byte{s1}
-	op := Operation{NextID: id, Data: []byte{1, 2, 3, 4, 5, 6}, Signatures: sigs}
+	op := Operation{NextID: id, Data: string([]byte{1, 2, 3, 4, 5, 6}), Signatures: sigs}
 
 	source := op.ToBytes()
 

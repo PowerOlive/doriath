@@ -14,7 +14,7 @@ import (
 type MockBitcoinClient struct {
 	blocks   []libkataware.Block
 	blockIdx map[string]int
-	txIdx    map[string][]byte
+	txIdx    map[string]int
 	mempool  []libkataware.Transaction
 
 	lk sync.RWMutex
@@ -46,19 +46,15 @@ func (mbc *MockBitcoinClient) GetBlockIdx(hsh []byte) (idx int, err error) {
 }
 
 // GetBlock gets a block by its hash.
-func (mbc *MockBitcoinClient) GetBlock(hsh []byte) ([]byte, error) {
+func (mbc *MockBitcoinClient) GetBlock(idx int) ([]byte, error) {
 	mbc.lk.RLock()
 	defer mbc.lk.RUnlock()
-	idx, ok := mbc.blockIdx[string(hsh)]
-	if !ok {
-		return nil, errors.New("not found")
-	}
 	return mbc.blocks[idx].Serialize(), nil
 }
 
-// GetHeader gets a block header by the block hash.
-func (mbc *MockBitcoinClient) GetHeader(hsh []byte) ([]byte, error) {
-	blk, err := mbc.GetBlock(hsh)
+// GetHeader gets a block header by the index.
+func (mbc *MockBitcoinClient) GetHeader(idx int) ([]byte, error) {
+	blk, err := mbc.GetBlock(idx)
 	if err != nil {
 		return nil, err
 	}
@@ -66,14 +62,28 @@ func (mbc *MockBitcoinClient) GetHeader(hsh []byte) ([]byte, error) {
 }
 
 // LocateTx returns the hash of the block that contains a certain transaction.
-func (mbc *MockBitcoinClient) LocateTx(txhsh []byte) ([]byte, error) {
+func (mbc *MockBitcoinClient) LocateTx(txhsh []byte) (int, error) {
 	mbc.lk.RLock()
 	defer mbc.lk.RUnlock()
 	bhsh, ok := mbc.txIdx[string(txhsh)]
 	if !ok {
-		return nil, errors.New("no such tx")
+		return -1, errors.New("no such tx")
 	}
 	return bhsh, nil
+}
+
+func (mbc *MockBitcoinClient) garbageTx() []byte {
+	gbg := make([]byte, 1024)
+	rand.Read(gbg)
+	badtx := libkataware.Transaction{
+		Version: 1,
+		Inputs: []libkataware.TxInput{
+			libkataware.TxInput{
+				PrevHash: gbg,
+			},
+		},
+	}
+	return badtx.ToBytes()
 }
 
 // SignTx "signs" a transaction; in this case it's a no-op.
@@ -98,11 +108,17 @@ func (mbc *MockBitcoinClient) BroadcastTx(tx []byte) error {
 func NewMockBitcoinClient() (*MockBitcoinClient, []byte) {
 	toret := &MockBitcoinClient{
 		blockIdx: make(map[string]int),
-		txIdx:    make(map[string][]byte),
+		txIdx:    make(map[string]int),
 	}
 	go func() {
 		for {
-			time.Sleep(time.Second * 60)
+			time.Sleep(time.Second * 10)
+			for i := 0; i < rand.Int()%50+700; i++ {
+				e := toret.BroadcastTx(toret.garbageTx())
+				if e != nil {
+					panic(e)
+				}
+			}
 			toret.lk.Lock()
 			oldbhash := make([]byte, 32)
 			if len(toret.blocks) != 0 {
@@ -122,9 +138,9 @@ func NewMockBitcoinClient() (*MockBitcoinClient, []byte) {
 			toret.blocks = append(toret.blocks, newblk)
 			toret.blockIdx[string(libkataware.DoubleSHA256(newblk.Hdr.Serialize()))] =
 				len(toret.blocks) - 1
-			blkhsh := libkataware.DoubleSHA256(newblk.Hdr.Serialize())
+			//blkhsh := libkataware.DoubleSHA256(newblk.Hdr.Serialize())
 			for _, tx := range newblk.Bdy {
-				toret.txIdx[string(tx.Hash256())] = blkhsh
+				toret.txIdx[string(tx.Hash256())] = len(toret.blocks) - 1
 			}
 			toret.lk.Unlock()
 		}
@@ -136,7 +152,7 @@ func NewMockBitcoinClient() (*MockBitcoinClient, []byte) {
 		},
 		Outputs: []libkataware.TxOutput{
 			libkataware.TxOutput{
-				Value: 1000000000000,
+				Value: 1000000,
 			},
 		},
 	}

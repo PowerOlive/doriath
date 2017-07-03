@@ -13,6 +13,7 @@ func main() {
 	subcommands.Register(&cmdKeygen{}, "")
 	subcommands.Register(&cmdNewop{}, "")
 	subcommands.Register(&cmdDumpop{}, "")
+	subcommands.Register(&cmdStage{}, "")
 	flag.Parse()
 	ctx := context.Background()
 	os.Exit(int(subcommands.Execute(ctx)))

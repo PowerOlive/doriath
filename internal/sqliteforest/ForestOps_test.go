@@ -11,7 +11,7 @@ import (
 )
 
 func demoOp(data string) (val operlog.Operation) {
-	val.Data = []byte(data)
+	val.Data = data
 	return
 }
 

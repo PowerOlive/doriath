@@ -2,6 +2,7 @@ package main
 
 import (
 	crand "crypto/rand"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -28,11 +29,11 @@ func garbageLoop(srv *doriath.Server) {
 		}
 		name := fmt.Sprintf("name-%v", i)
 		newop := operlog.Operation{
-			PrevHash: make([]byte, 32),
-			NextID:   idscBin,
-			Data:     []byte(fmt.Sprintf("garbage-data-%v", name)),
+			Nonce:  make([]byte, 16),
+			NextID: idscBin,
+			Data:   fmt.Sprintf("garbage-data-%v", name),
 		}
-		crand.Read(newop.PrevHash)
+		crand.Read(newop.Nonce)
 		signature := ed25519.Sign(sk, newop.SignedPart())
 		newop.Signatures = [][]byte{signature}
 		srv.StageOperation(name, newop)
@@ -49,9 +50,11 @@ func main() {
 	if err != nil {
 		panic("waaaa")
 	}
+	bts, _ := json.MarshalIndent(waa, "", "    ")
+	fmt.Println(string(bts))
 	srv, err := doriath.NewServer(mbc,
-		"foobar", bogus,
-		time.Second*10,
+		"foobar",
+		time.Minute,
 		fmt.Sprintf("/tmp/doriath-mock-%v.db", time.Now().Unix()))
 	if err != nil {
 		panic(err.Error())
@@ -64,6 +67,26 @@ func main() {
 	}
 	log.Println("MOCK SERVER STARTED at 127.0.0.1:18888, point nginx here")
 	go garbageLoop(srv)
+	go func() {
+		for {
+			time.Sleep(time.Second * 1)
+			bogusTx := libkataware.Transaction{
+				Version: 1,
+				Inputs: []libkataware.TxInput{
+					libkataware.TxInput{PrevHash: make([]byte, 32)},
+				},
+				Outputs: []libkataware.TxOutput{
+					libkataware.TxOutput{
+						Value:  1000000,
+						Script: make([]byte, 32),
+					},
+				},
+			}
+			crand.Read(bogusTx.Inputs[0].PrevHash)
+			srv.AddFunds(bogusTx.ToBytes())
+			break
+		}
+	}()
 	err = hserv.ListenAndServe()
 	if err != nil {
 		panic(err.Error())

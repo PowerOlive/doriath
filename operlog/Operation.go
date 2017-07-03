@@ -14,7 +14,7 @@ var ErrInvalidOp = errors.New("invalid operation")
 type Operation struct {
 	Nonce      []byte
 	NextID     IDScript
-	Data       []byte
+	Data       string
 	Signatures [][]byte
 }
 
@@ -41,7 +41,7 @@ func (op *Operation) SignedPart() []byte {
 	// 4 bytes: length of associated data; len returns int
 	binary.Write(buf, binary.BigEndian, uint32(len(op.Data)))
 	// associated data
-	binary.Write(buf, binary.BigEndian, op.Data)
+	binary.Write(buf, binary.BigEndian, []byte(op.Data))
 	return buf.Bytes()
 }
 
@@ -126,11 +126,12 @@ func (op *Operation) Unpack(in io.Reader) error {
 		return ErrInvalidOp
 	}
 	// init with length datalen
-	op.Data = make([]byte, datalen)
-	err = binary.Read(in, binary.BigEndian, &(op.Data))
+	zzz := make([]byte, datalen)
+	err = binary.Read(in, binary.BigEndian, &zzz)
 	if err != nil {
 		return ErrInvalidOp
 	}
+	op.Data = string(zzz)
 
 	err = binary.Read(in, binary.BigEndian, &siglen)
 	if err != nil {

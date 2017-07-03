@@ -33,7 +33,7 @@ func (cmd *cmdNewop) Execute(_ context.Context,
 	var op operlog.Operation
 	op.Nonce = make([]byte, 16)
 	crand.Read(op.Nonce)
-	op.Data = []byte(cmd.argData)
+	op.Data = cmd.argData
 	comp, err := operlog.AssembleID(cmd.argNextID)
 	if err != nil {
 		log.Fatalln("cannot assemble given ID script:", err)

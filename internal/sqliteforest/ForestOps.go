@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -65,11 +66,6 @@ func (pr Proof) Check(rootHash []byte, key string, valhash []byte) bool {
 	H := libkataware.DoubleSHA256
 	if len(pr) < 1 {
 		return false // WTF
-	}
-	if len(pr) == 1 {
-		return comp(H(pr[0].ToBytes())[:len(rootHash)], rootHash) == 0 &&
-			pr[0].Key == key &&
-			comp(pr[0].VHash, valhash) == 0
 	}
 	// general case
 	seenKeys := make(map[string]bool)
@@ -151,9 +147,21 @@ func (an AbbrNode) String() string {
 
 // SearchStaging searches the staging area for a key and returns all the waiting operations.
 func (fst *Forest) SearchStaging(key string) (value []operlog.Operation, err error) {
-	var rawops []byte
-	err = fst.sdb.QueryRow("SELECT value FROM uncommitted WHERE key=$1", key).Scan(&rawops)
+	tx, err := fst.sdb.Begin()
 	if err != nil {
+		return
+	}
+	defer tx.Commit()
+	return fst.searchStaging(tx, key)
+}
+
+func (fst *Forest) searchStaging(tx *sql.Tx, key string) (value []operlog.Operation, err error) {
+	var rawops []byte
+	err = tx.QueryRow("SELECT value FROM uncommitted WHERE key=$1", key).Scan(&rawops)
+	if err != nil {
+		if strings.Contains(err.Error(), "no rows") {
+			err = nil
+		}
 		return
 	}
 	srops := bytes.NewReader(rawops)
@@ -164,6 +172,35 @@ func (fst *Forest) SearchStaging(key string) (value []operlog.Operation, err err
 			panic("CORRUPT DB: failed while unpacking an operation in staging!")
 		}
 		value = append(value, op)
+	}
+	return
+}
+
+func (fst *Forest) findAllProofs(tx *sql.Tx, key string) (roots [][]byte,
+	proofs []Proof,
+	values [][]operlog.Operation,
+	err error) {
+	rows, err := tx.Query("SELECT rhash FROM treeroots")
+	if err != nil {
+		return
+	}
+	for rows.Next() {
+		var nv []byte
+		err = rows.Scan(&nv)
+		if err != nil {
+			return
+		}
+		roots = append(roots, nv)
+	}
+	// go through the roots
+	for _, rt := range roots {
+		prf, val, e := fst.findOneProof(tx, rt, key)
+		err = e
+		if err != nil {
+			return
+		}
+		proofs = append(proofs, prf)
+		values = append(values, val)
 	}
 	return
 }
@@ -208,6 +245,37 @@ func (fst *Forest) findOneProof(tx *sql.Tx, trhash []byte, key string) (proof Pr
 	return
 }
 
+// FindOperations returns all the operations given a key.
+func (fst *Forest) FindOperations(key string) (oplog operlog.OperLog, err error) {
+	tx, err := fst.sdb.Begin()
+	if err != nil {
+		return
+	}
+	defer tx.Commit()
+	return fst.findOperations(tx, key)
+}
+
+func (fst *Forest) findOperations(tx *sql.Tx, key string) (oplog operlog.OperLog, err error) {
+	var ops operlog.OperLog
+	_, _, values, err := fst.findAllProofs(tx, key)
+	if err != nil {
+		log.Println("could not findAllProofs")
+		return
+	}
+	for _, v := range values {
+		for _, o := range v {
+			ops = append(ops, o)
+		}
+	}
+	oplog = ops
+	unconfOps, err := fst.searchStaging(tx, key)
+	if err != nil {
+		return
+	}
+	oplog = append(oplog, unconfOps...)
+	return
+}
+
 // FindProof returns a proof of (non)existence given a tree-root hash and a key.
 func (fst *Forest) FindProof(trhash []byte, key string) (proof Proof, value []operlog.Operation,
 	err error) {
@@ -229,29 +297,7 @@ func (fst *Forest) FindAllProof(key string) (roots [][]byte,
 		return
 	}
 	defer tx.Commit()
-	rows, err := tx.Query("SELECT rhash FROM treeroots")
-	if err != nil {
-		return
-	}
-	for rows.Next() {
-		var nv []byte
-		err = rows.Scan(&nv)
-		if err != nil {
-			return
-		}
-		roots = append(roots, nv)
-	}
-	// go through the roots
-	for _, rt := range roots {
-		prf, val, e := fst.findOneProof(tx, rt, key)
-		err = e
-		if err != nil {
-			return
-		}
-		proofs = append(proofs, prf)
-		values = append(values, val)
-	}
-	return
+	return fst.findAllProofs(tx, key)
 }
 
 // TreeRoots returns an array of all the tree root hashes in the forest, in chronological order.
@@ -299,9 +345,18 @@ func (fst *Forest) Stage(key string, op operlog.Operation) (err error) {
 			if err != nil {
 				return
 			}
-			return tx.Commit()
+		} else {
+			return
 		}
+	}
+
+	// final check
+	ops, err := fst.findOperations(tx, key)
+	if err != nil {
 		return
+	}
+	if !ops.IsValid() {
+		return errors.New("cannot stage since it would result in invalid operation chain")
 	}
 	return tx.Commit()
 }

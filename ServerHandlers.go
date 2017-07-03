@@ -1,6 +1,7 @@
 package doriath
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -29,8 +30,8 @@ func (srv *Server) handTxchain(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("cache-control", fmt.Sprintf("max-age=60"))
 	var towrite []struct {
 		RawTx    []byte
-		BlockIdx int
-		PosInBlk int
+		BlockIdx interface{}
+		PosInBlk interface{}
 		Merkle   [][]byte
 	}
 	dbtx, err := srv.dbHandle.Begin()
@@ -42,7 +43,7 @@ func (srv *Server) handTxchain(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		dbtx.Commit()
 	}()
-	rows, err := dbtx.Query("SELECT rawtx FROM txhistory")
+	rows, err := dbtx.Query("SELECT rawtx, blkidx, posinblk, merkle FROM txhistory")
 	if err != nil {
 		log.Println("server: failed selecting rawtx from txhistory")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -52,43 +53,60 @@ func (srv *Server) handTxchain(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var toadd struct {
 			RawTx    []byte
-			BlockIdx int
-			PosInBlk int
+			BlockIdx interface{}
+			PosInBlk interface{}
 			Merkle   [][]byte
 		}
-		err = rows.Scan(&toadd.RawTx)
+		var ccmerkle []byte
+		err = rows.Scan(&toadd.RawTx, &toadd.BlockIdx, &toadd.PosInBlk, &ccmerkle)
 		if err != nil {
-			log.Println("server: failed scanning rawtx")
+			log.Println("server: failed scanning rawtx:", err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		txhash := libkataware.DoubleSHA256(toadd.RawTx)
-		var blhsh []byte
-		blhsh, err = srv.btcClient.LocateTx(txhash)
-		if err != nil {
-			toadd.BlockIdx = -1
-			towrite = append(towrite, toadd)
-			continue
+		if ccmerkle == nil {
+			txhash := libkataware.DoubleSHA256(toadd.RawTx)
+			toadd.BlockIdx, err = srv.btcClient.LocateTx(txhash)
+			if err != nil {
+				toadd.BlockIdx = -1
+				toadd.PosInBlk = 0
+				towrite = append(towrite, toadd)
+				continue
+			}
+			var blk []byte
+			blk, err = srv.btcClient.GetBlock(toadd.BlockIdx.(int))
+			if err != nil {
+				log.Println("server: failed locating block from txhistory")
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			var fullblock libkataware.Block
+			err = fullblock.Deserialize(blk)
+			if err != nil {
+				panic("Garbage in fullblock?!")
+			}
+			toadd.Merkle, toadd.PosInBlk = fullblock.GenMerkle(txhash)
+			_, err = dbtx.Exec(`UPDATE txhistory SET blkidx = $1,
+				 posinblk = $2, merkle = $3 WHERE rawtx = $4`,
+				toadd.BlockIdx, toadd.PosInBlk, func() (res []byte) {
+					for _, v := range toadd.Merkle {
+						res = append(res, v...)
+					}
+					return
+				}(), toadd.RawTx)
+			if err != nil {
+				log.Println("server: failed to update tx cache:", err.Error())
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		} else {
+			buf := bytes.NewReader(ccmerkle)
+			for buf.Len() > 0 {
+				mkbr := make([]byte, 32)
+				buf.Read(mkbr)
+				toadd.Merkle = append(toadd.Merkle, mkbr)
+			}
 		}
-		toadd.BlockIdx, err = srv.btcClient.GetBlockIdx(blhsh)
-		if err != nil {
-			log.Println("server: failed locating blockidx from txhistory")
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		var blk []byte
-		blk, err = srv.btcClient.GetBlock(blhsh)
-		if err != nil {
-			log.Println("server: failed locating block from txhistory")
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		var fullblock libkataware.Block
-		err = fullblock.Deserialize(blk)
-		if err != nil {
-			panic("Garbage in fullblock?!")
-		}
-		toadd.Merkle, toadd.PosInBlk = fullblock.GenMerkle(txhash)
 		towrite = append(towrite, toadd)
 	}
 	encoded, err := json.MarshalIndent(towrite, "", "    ")

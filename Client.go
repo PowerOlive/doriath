@@ -117,16 +117,20 @@ func (clnt *Client) GetOpLog(name string) (operlog.OperLog, int, error) {
 	}
 
 	// check whether the cached data is in sync
-	if len(txChain) < len(opEntries) {
+	confirmedOps := 0
+	for _, v := range opEntries {
+		if len(v.Proof) > 0 {
+			confirmedOps++
+		}
+	}
+	if len(txChain) < confirmedOps {
 		log.Println("txchain less than opentries", len(txChain), len(opEntries))
 		return nil, 0, ErrOutOfSync
 	}
 
 	// first pass: ensure it goes confirmed->unconfirmed->(staging) using a simple SM
 	cflag := 'c'
-	ccount := 0
 	for i, ope := range opEntries {
-		txce := txChain[i]
 		if ope.Proof == nil {
 			if cflag == 'c' || cflag == 'u' {
 				cflag = 's'
@@ -136,6 +140,7 @@ func (clnt *Client) GetOpLog(name string) (operlog.OperLog, int, error) {
 				return nil, 0, ErrInvOpEntries
 			}
 		}
+		txce := txChain[i]
 		if txce.BlockIdx < 0 {
 			if cflag == 'c' || cflag == 'u' {
 				cflag = 'u'
@@ -147,7 +152,6 @@ func (clnt *Client) GetOpLog(name string) (operlog.OperLog, int, error) {
 		}
 		if cflag == 'c' {
 			cflag = 'c'
-			ccount++
 			continue
 		} else {
 			log.Println("state machine fail on steady")
@@ -156,13 +160,11 @@ func (clnt *Client) GetOpLog(name string) (operlog.OperLog, int, error) {
 	}
 
 	var toret operlog.OperLog
-
+	unconfirmed := 0
 	// second pass: check all proofs
 	for i, ope := range opEntries {
-		txce := txChain[i]
-		var tx libkataware.Transaction
-		tx.FromBytes(txce.RawTx)
 		buf := bytes.NewReader(ope.RawOps)
+		thisctr := 0
 		for buf.Len() != 0 {
 			var op operlog.Operation
 			err := op.Unpack(buf)
@@ -170,7 +172,15 @@ func (clnt *Client) GetOpLog(name string) (operlog.OperLog, int, error) {
 				return nil, 0, ErrInvOpEntries
 			}
 			toret = append(toret, op)
+			thisctr++
 		}
+		if ope.Proof == nil || txChain[i].BlockIdx < 0 {
+			unconfirmed += thisctr
+			break
+		}
+		txce := txChain[i]
+		var tx libkataware.Transaction
+		tx.FromBytes(txce.RawTx)
 		if txce.BlockIdx >= 0 {
 			var prf sqliteforest.Proof
 			roothash := tx.Outputs[1].Script[3:23]
@@ -184,7 +194,8 @@ func (clnt *Client) GetOpLog(name string) (operlog.OperLog, int, error) {
 				valHash = nil
 			}
 			if ope.Proof != nil && !prf.Check(roothash, name, valHash) {
-				log.Printf("proof wrong!! %x %v %x", roothash[:10], name, valHash[:10])
+				log.Println(len(valHash))
+				log.Printf("proof wrong!! %x %v %x", roothash, name, valHash)
 				return nil, 0, ErrInvOpEntries
 			}
 		}
@@ -194,8 +205,7 @@ func (clnt *Client) GetOpLog(name string) (operlog.OperLog, int, error) {
 		log.Println("ops invalid!!")
 		return nil, 0, ErrInvOpEntries
 	}
-
-	return toret, ccount, nil
+	return toret, len(toret) - unconfirmed, nil
 }
 
 func (clnt *Client) idx2hdr(fd *os.File, idx int) libkataware.Header {
