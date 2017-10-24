@@ -79,7 +79,8 @@ func (mbc *MockBitcoinClient) garbageTx() []byte {
 		Version: 1,
 		Inputs: []libkataware.TxInput{
 			libkataware.TxInput{
-				PrevHash: gbg,
+				PrevHash: make([]byte, 32),
+				Script:   gbg,
 			},
 		},
 	}

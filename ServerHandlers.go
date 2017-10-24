@@ -73,19 +73,18 @@ func (srv *Server) handTxchain(w http.ResponseWriter, r *http.Request) {
 				towrite = append(towrite, toadd)
 				continue
 			}
-			var blk []byte
-			blk, err = srv.btcClient.GetBlock(toadd.BlockIdx.(int))
+			toadd.BlockIdx, err = srv.btcClient.LocateTx(txhash)
 			if err != nil {
-				log.Println("server: failed locating block from txhistory")
+				log.Println("server: failed to locate tx:", err.Error())
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			var fullblock libkataware.Block
-			err = fullblock.Deserialize(blk)
+			toadd.Merkle, toadd.PosInBlk, err = srv.btcClient.GetMerkle(txhash, toadd.BlockIdx.(int))
 			if err != nil {
-				panic("Garbage in fullblock?!")
+				log.Println("server: failed to get merkle from network:", err.Error())
+				w.WriteHeader(http.StatusInternalServerError)
+				return
 			}
-			toadd.Merkle, toadd.PosInBlk = fullblock.GenMerkle(txhash)
 			_, err = dbtx.Exec(`UPDATE txhistory SET blkidx = $1,
 				 posinblk = $2, merkle = $3 WHERE rawtx = $4`,
 				toadd.BlockIdx, toadd.PosInBlk, func() (res []byte) {

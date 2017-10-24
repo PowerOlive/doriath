@@ -37,7 +37,7 @@ func garbageLoop(srv *doriath.Server) {
 		signature := ed25519.Sign(sk, newop.SignedPart())
 		newop.Signatures = [][]byte{signature}
 		srv.StageOperation(name, newop)
-		time.Sleep(time.Second)
+		time.Sleep(time.Millisecond * 100)
 	}
 }
 
@@ -54,8 +54,8 @@ func main() {
 	fmt.Println(string(bts))
 	srv, err := doriath.NewServer(mbc,
 		"foobar",
-		time.Minute,
-		fmt.Sprintf("/tmp/doriath-mock-%v.db", time.Now().Unix()))
+		time.Second*10,
+		fmt.Sprintf("file::memory:?cache=shared"))
 	if err != nil {
 		panic(err.Error())
 	}
@@ -69,7 +69,6 @@ func main() {
 	go garbageLoop(srv)
 	go func() {
 		for {
-			time.Sleep(time.Second * 1)
 			bogusTx := libkataware.Transaction{
 				Version: 1,
 				Inputs: []libkataware.TxInput{
@@ -77,14 +76,14 @@ func main() {
 				},
 				Outputs: []libkataware.TxOutput{
 					libkataware.TxOutput{
-						Value:  1000000,
+						Value:  100000000,
 						Script: make([]byte, 32),
 					},
 				},
 			}
 			crand.Read(bogusTx.Inputs[0].PrevHash)
 			srv.AddFunds(bogusTx.ToBytes())
-			break
+			time.Sleep(time.Second * 10)
 		}
 	}()
 	err = hserv.ListenAndServe()
